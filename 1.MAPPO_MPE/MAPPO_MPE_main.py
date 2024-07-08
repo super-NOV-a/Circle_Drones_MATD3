@@ -5,7 +5,7 @@ import argparse
 from normalization import Normalization, RewardScaling
 from replay_buffer import ReplayBuffer
 from mappo_mpe import MAPPO_MPE
-from make_env import make_env
+from env.make_env import make_env
 
 
 class Runner_MAPPO_MPE:
@@ -18,7 +18,7 @@ class Runner_MAPPO_MPE:
         np.random.seed(self.seed)
         torch.manual_seed(self.seed)
         # Create env
-        self.env = make_env(env_name, discrete=True) # Discrete action space
+        self.env = make_env(env_name, Discrete=True) # Discrete action space
         self.args.N = self.env.n  # The number of agents
         self.args.obs_dim_n = [self.env.observation_space[i].shape[0] for i in range(self.args.N)]  # obs dimensions of N agents
         self.args.action_dim_n = [self.env.action_space[i].n for i in range(self.args.N)]  # actions dimensions of N agents

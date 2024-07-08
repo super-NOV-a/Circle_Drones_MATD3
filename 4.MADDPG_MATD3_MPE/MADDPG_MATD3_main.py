@@ -1,11 +1,11 @@
 import torch
 import numpy as np
 from torch.utils.tensorboard import SummaryWriter
-from make_env import make_env
+from env.make_env import make_env
 import argparse
-from replay_buffer import ReplayBuffer
-from maddpg import MADDPG
-from matd3 import MATD3
+from utils.replay_buffer import ReplayBuffer
+from utils.maddpg import MADDPG
+from utils.matd3 import MATD3
 import copy
 
 
@@ -16,8 +16,8 @@ class Runner:
         self.number = number
         self.seed = seed
         # Create env
-        self.env = make_env(env_name, discrete=False)  # Continuous action space
-        self.env_evaluate = make_env(env_name, discrete=False)
+        self.env = make_env(env_name, Discrete=False)  # Continuous action space
+        self.env_evaluate = make_env(env_name, Discrete=False)
         self.args.N = self.env.n  # The number of agents
         self.args.obs_dim_n = [self.env.observation_space[i].shape[0] for i in range(self.args.N)]  # obs dimensions of N agents
         self.args.action_dim_n = [self.env.action_space[i].shape[0] for i in range(self.args.N)]  # actions dimensions of N agents
@@ -138,6 +138,6 @@ if __name__ == '__main__':
     args.noise_std_decay = (args.noise_std_init - args.noise_std_min) / args.noise_decay_steps
 
     env_names = ["simple_speaker_listener", "simple_spread"]
-    env_index = 0
+    env_index = 1
     runner = Runner(args, env_name=env_names[env_index], number=1, seed=0)
     runner.run()
