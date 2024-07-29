@@ -115,7 +115,7 @@ class Runner:
                 a_n = [agent.choose_action(obs, noise_std=0.005) for agent, obs in zip(self.agent_n, obs_n)]  # 不添加噪声
                 for i in range(self.args.N_drones):
                     if obs_n[i][15] <= 0.5:
-                        a_n[i][3] = 0   # 限制飞到周围后的速度，保证测试不乱飞（偷懒做法）
+                        a_n[i][3] = 0.1 * a_n[i][3]   # 限制飞到周围后的速度，保证测试不乱飞（偷懒做法）
                 time.sleep(0.01)
                 obs_next_n, r_n, done_n, _, _ = self.env_evaluate.step(copy.deepcopy(a_n))
                 obs_next_n = self.convert_wrap(obs_next_n)

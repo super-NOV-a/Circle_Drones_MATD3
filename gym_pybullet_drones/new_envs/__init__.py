@@ -1,0 +1,3 @@
+from gym_pybullet_drones.new_envs.CircleBase_Camera_Aviary import CircleBaseCameraAviary
+from gym_pybullet_drones.new_envs.CircleRL_Camera_Aviary import CircleRLCameraAviary
+from gym_pybullet_drones.new_envs.CircleSpread_Camera import CircleCameraAviary

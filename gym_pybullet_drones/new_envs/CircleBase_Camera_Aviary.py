@@ -9,6 +9,8 @@ import numpy as np
 import pybullet as p
 import pybullet_data
 import gymnasium as gym
+from matplotlib import pyplot as plt
+
 from gym_pybullet_drones.utils.enums import DroneModel, Physics, ImageType
 
 
@@ -45,8 +47,9 @@ def generate_non_overlapping_positions_numpy(scale=1.0):
 # positions = generate_non_overlapping_positions_numpy(scale=2)
 
 
-class CircleBaseAviary(gym.Env):
+class CircleBaseCameraAviary(gym.Env):
     """Base class for "drone aviary" Gym environments."""
+
     def __init__(self,
                  drone_model: DroneModel = DroneModel.CF2X,
                  num_drones: int = 1,
@@ -61,7 +64,8 @@ class CircleBaseAviary(gym.Env):
                  vision_attributes=False,
                  output_folder='results',
                  need_target=False,
-                 obs_with_act=False
+                 obs_with_act=False,
+                 test=False  # 若测试，则实例化对象时给定初始位置
                  ):
         #### Constants #############################################
         self.G = 9.8
@@ -71,11 +75,13 @@ class CircleBaseAviary(gym.Env):
         self.CTRL_FREQ = 30  # 控制器更新频率
         self.PYB_FREQ = 240  # default 240 物理更新频率
         self.PYB_STEPS_PER_CTRL = int(self.PYB_FREQ / self.CTRL_FREQ)  # default 240/30=8
-        self.CTRL_TIMESTEP = 1. / self.CTRL_FREQ  # 飞控控制器 控制周期Tc
+        self.CTRL_TIMESTEP = 1. / self.CTRL_FREQ  # 飞控控制器 控制周期Tc    1/30
         self.PYB_TIMESTEP = 1. / self.PYB_FREQ  # 仿真周期Tp
         #### Parameters ############################################
         self.NUM_DRONES = num_drones
         self.NEIGHBOURHOOD_RADIUS = neighbourhood_radius
+        self.need_target = need_target  # added
+        self.Test = test
         #### Options ###############################################
         self.DRONE_MODEL = drone_model
         self.GUI = gui
@@ -115,13 +121,13 @@ class CircleBaseAviary(gym.Env):
             os.makedirs(os.path.dirname(self.ONBOARD_IMG_PATH), exist_ok=True)
         self.VISION_ATTR = vision_attributes
         if self.VISION_ATTR:
-            self.IMG_RES = np.array([64, 48])
+            self.IMG_RES = np.array([128, 96])
             self.IMG_FRAME_PER_SEC = 1
-            self.IMG_CAPTURE_FREQ = int(self.PYB_FREQ / self.IMG_FRAME_PER_SEC)     # 周期为：240/1 步
+            self.IMG_CAPTURE_FREQ = int(self.PYB_FREQ / self.IMG_FRAME_PER_SEC)  # 周期为：240/1 步
             self.rgb = np.zeros(((self.NUM_DRONES, self.IMG_RES[1], self.IMG_RES[0], 4)))
             self.dep = np.ones(((self.NUM_DRONES, self.IMG_RES[1], self.IMG_RES[0])))
             self.seg = np.zeros(((self.NUM_DRONES, self.IMG_RES[1], self.IMG_RES[0])))
-            if self.IMG_CAPTURE_FREQ % self.PYB_STEPS_PER_CTRL != 0:    # 8/8
+            if self.IMG_CAPTURE_FREQ % self.PYB_STEPS_PER_CTRL != 0:  # 8/8
                 print(
                     "[ERROR] in BaseAviary.__init__(), PyBullet and control frequencies incompatible with the desired video capture frame rate ({:f}Hz)".format(
                         self.IMG_FRAME_PER_SEC))
@@ -180,12 +186,16 @@ class CircleBaseAviary(gym.Env):
         #### Set initial poses #####################################
         if initial_xyzs is None:  # todo 修改初始位置
             # 正负范围：0.8:9个随机cell位置，1.0: 16个，1.3: 25个，1.5: 36个,1.8: 49个,2.0: 64个
-            self.cell_pos = generate_non_overlapping_positions_numpy(2)
+            self.cell_pos = generate_non_overlapping_positions_numpy(1)
             # 若需要，同时给定目标位置
             self.need_target = need_target
-            self.INIT_XYZS, self.TARGET_POS = self.get_init()
+            if self.need_target:
+                self.INIT_XYZS, self.TARGET_POS = self.get_init()
+            else:
+                self.INIT_XYZS = self.get_init()
         elif np.array(initial_xyzs).shape == (self.NUM_DRONES, 3):
             self.INIT_XYZS = initial_xyzs
+            self.TARGET_POS = np.array([0, 0, 1])
         else:
             print("[ERROR] invalid initial_xyzs in BaseAviary.__init__(), try initial_xyzs.reshape(NUM_DRONES,3)")
         if initial_rpys is None:
@@ -254,36 +264,6 @@ class CircleBaseAviary(gym.Env):
         # # print("现在的目标位置修改为：", self.TARGET_POS)
         # p.resetBasePositionAndOrientation(self.target_id, self.TARGET_POS[0], p.getQuaternionFromEuler([0, 0, 0]))
 
-    def _resetDronePosition(self, drone_idx, new_position):
-        # 可能不该使用，真实无人机无法reset
-        pass
-
-    def convert_obs_dict_to_array(self, obs_dict):
-        obs_array = []
-        if self.NUM_DRONES != 1:
-            for i in range(self.NUM_DRONES):
-                obs = obs_dict[i]
-                # action_buffer_flat = np.hstack(obs['action_buffer'])    # 拉成一维
-                obs_array.append(np.hstack([
-                    obs['pos'],
-                    obs['rpy'],
-                    obs['vel'],
-                    obs['ang_vel'],
-                    obs['target_pos'],
-                    obs['other_pos'],
-                    obs['last_action']
-                ]))
-        else:
-            pass
-        return np.array(obs_array).astype('float32')
-
-    def to_array_obs(self, obs_dict):
-        if isinstance(obs_dict, dict):
-            obs_array = self.convert_obs_dict_to_array(obs_dict)
-        else:
-            obs_array = obs_dict
-        return obs_array
-
     def reset(self,
               seed: int = None,
               options: dict = None):
@@ -320,10 +300,10 @@ class CircleBaseAviary(gym.Env):
         #### Start video recording #################################
         self._startVideoRecording()
         #### Return the initial observation ########################
-        initial_obs = self.to_array_obs(self._computeObs())
+        initial_rgbs, initial_states = self._computeAllObs()
         initial_info = self._computeInfo()
         # self.see_ball()
-        return initial_obs, initial_info
+        return initial_rgbs, initial_states, initial_info
 
     ################################################################################
 
@@ -335,7 +315,7 @@ class CircleBaseAviary(gym.Env):
         action : ndarray | dict[..]
             The input action for one or more drones, translated into RPMs by
             the specific implementation of `_preprocessAction()` in each subclass.
-
+        交互step频率是30Hz包含8个物理仿真step，结束时增加8个step_counter,每秒图像观测一张
         Returns
         -------
         ndarray | dict[..]
@@ -414,7 +394,7 @@ class CircleBaseAviary(gym.Env):
         self._updateAndStoreKinematicInformation()
         if self.need_target:
             self.update_target_pos()
-        obs = self.to_array_obs(self._computeObs())
+        rgbs, states = self._computeAllObs()  # array, array
         rewards = self._computeReward()
         terminated, punish = self._computeTerminated()
         truncated = self._computeTruncated()
@@ -422,7 +402,7 @@ class CircleBaseAviary(gym.Env):
         self.step_counter += (1 * self.PYB_STEPS_PER_CTRL)
         adjusted_rewards = [reward - 1 * p for reward, p in zip(rewards, punish)]
 
-        return obs, adjusted_rewards, terminated, truncated, info
+        return rgbs, states, adjusted_rewards, terminated, truncated, info
 
     ################################################################################
 
@@ -549,7 +529,11 @@ class CircleBaseAviary(gym.Env):
         p.setTimeStep(self.PYB_TIMESTEP, physicsClientId=self.CLIENT)  # 用于设置调用stepSimulation时的步长
         p.setAdditionalSearchPath(pybullet_data.getDataPath(), physicsClientId=self.CLIENT)  # 用于增加导入模型的路径
         #### Load ground plane, drone and obstacles models #########
-        self.INIT_XYZS, self.TARGET_POS = self.get_init()  # 重新给出位置
+        if not self.Test:
+            if self.need_target:
+                self.INIT_XYZS, self.TARGET_POS = self.get_init()  # 重新给出位置
+            else:
+                self.INIT_XYZS = self.get_init()
         self.PLANE_ID = p.loadURDF("plane.urdf", physicsClientId=self.CLIENT)
 
         self.DRONE_IDS = np.array(
@@ -640,10 +624,22 @@ class CircleBaseAviary(gym.Env):
             return state_dict
 
         else:  # 不需要目标位置
-            state = np.hstack([self.pos[nth_drone, :], self.quat[nth_drone, :], self.rpy[nth_drone, :],
-                               self.vel[nth_drone, :], self.ang_v[nth_drone, :],
-                               self.last_clipped_action[nth_drone, :]])
-            return state.reshape(20, )
+            state_dict = {
+                'pos': self.pos[nth_drone, :],  # 3
+                'quat': self.quat[nth_drone, :],  # 4
+                'rpy': self.rpy[nth_drone, :],  # 3
+                'vel': self.vel[nth_drone, :],  # 3
+                'ang_vel': self.ang_v[nth_drone, :],  # 3
+            }
+            other_pos_dis = []  # 存储智能体指向其他智能体的向量和距离 4*(N-1)
+            for i in range(self.NUM_DRONES):
+                if i != nth_drone:
+                    pos = self.pos[i, :] - self.pos[nth_drone, :]
+                    dis = np.linalg.norm(self.pos[i, :] - self.pos[nth_drone, :])
+                    other_pos_dis.append(np.append(pos, dis))
+            state_dict['other_pos_dis'] = np.array(other_pos_dis).flatten()  # 合并后的向量和距离
+            # state_dict['last_clipped_action'] = self.last_clipped_action[nth_drone, :]  # 动作在RL文件中读取的
+            return state_dict
 
     ################################################################################
 
@@ -689,7 +685,7 @@ class CircleBaseAviary(gym.Env):
                                                  flags=SEG_FLAG,
                                                  physicsClientId=self.CLIENT)
 
-        rgb = np.reshape(rgb, (h, w, 4))
+        rgb = np.reshape(rgb, (h, w, 4))  # RGBA,透明度(Alpha)
         dep = np.reshape(dep, (h, w))
         seg = np.reshape(seg, (h, w))
 
@@ -1123,6 +1119,9 @@ class CircleBaseAviary(gym.Env):
         Must be implemented in a subclass.
 
         """
+        raise NotImplementedError
+
+    def _computeAllObs(self):
         raise NotImplementedError
 
     ################################################################################

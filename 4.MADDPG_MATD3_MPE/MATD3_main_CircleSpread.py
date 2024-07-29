@@ -22,6 +22,7 @@ class Runner:
         self.number = args.N_drones
         self.seed = 1145  # 保证一个seed，名称使用记号--mark
         self.mark = args.mark
+        self.load_mark = None
         self.args.share_prob = 0.05  # 还是别共享了，有些无用
         # Create env
         if self.env_name == 'circle':
@@ -82,34 +83,16 @@ class Runner:
         self.total_steps = 0
         self.noise_std = self.args.noise_std_init  # Initialize noise_std
 
-    def convert_obs_dict_to_array(self, obs_dict):
-        obs_array = []
-        if self.args.N_drones != 1:
-            for i in range(self.args.N_drones):
-                obs = obs_dict[i]
-                # action_buffer_flat = np.hstack(obs['action_buffer'])    # 拉成一维
-                obs_array.append(np.hstack([
-                    obs['pos'],
-                    obs['rpy'],
-                    obs['vel'],
-                    obs['ang_vel'],
-                    obs['target_pos'],
-                    obs['other_pos'],
-                    obs['last_action']
-                ]))
-        else:
-            pass
-        return np.array(obs_array).astype('float32')
-
-    def convert_wrap(self, obs_dict):
-        if self.env_name == 'circle':  # 'simple_spread'
-            if isinstance(obs_dict, dict):
-                obs_dict = self.convert_obs_dict_to_array(obs_dict)
-            else:
-                obs_dict = obs_dict
-            return obs_dict
-        elif self.env_name == 'simple_spread':
-            return obs_dict
+        if self.load_mark is not None:
+            for agent_id in range(self.args.N_drones):
+                # 加载模型参数
+                model_path = "./model/{}/{}_actor_mark_{}_number_{}_step_{}k_agent_{}.pth".format(self.env_name,
+                                                                                                  self.args.algorithm,
+                                                                                                  self.load_mark,
+                                                                                                  self.number,
+                                                                                                  int(10000),
+                                                                                                  agent_id)  # agent_id
+                self.agent_n[agent_id].actor.load_state_dict(torch.load(model_path))
 
     def run(self, ):
         while self.total_steps < self.args.max_train_steps:
@@ -117,7 +100,7 @@ class Runner:
                 obs_n, _ = self.env.reset()  # gym new api
             else:
                 obs_n = self.env.reset()  # gym old api
-            obs_n = self.convert_wrap(obs_n)
+            # obs_n = self.convert_wrap(obs_n)
             train_reward = 0
             rewards_n = [0] * self.args.N_drones
 
@@ -128,7 +111,7 @@ class Runner:
                     obs_next_n, r_n, done_n, _, _ = self.env.step(copy.deepcopy(a_n))  # gym new api
                 else:
                     obs_next_n, r_n, done_n, _ = self.env.step(copy.deepcopy(a_n))
-                obs_next_n = self.convert_wrap(obs_next_n)
+                # obs_next_n = self.convert_wrap(obs_next_n)
 
                 self.replay_buffer.store_transition(obs_n, a_n, r_n, obs_next_n, done_n)
                 obs_n = obs_next_n
@@ -148,7 +131,6 @@ class Runner:
                         obs_n, _ = self.env.reset()  # gym new api
                     else:
                         obs_n = self.env.reset()  # gym old api
-                    obs_n = self.convert_wrap(obs_n)
 
                 if all(done_n):
                     break

@@ -109,13 +109,18 @@ class CircleSpreadAviary(CircleRLAviary):
             if dis_to_circle[i] < 0.1:
                 rewards[i] += 15  # 当距离目标很近时，给予较大的奖励
             elif dis_to_circle[i] < 0.2:
-                rewards[i] += 10  # 当距离目标很近时，给予较大的奖励
+                rewards[i] += 10
             elif dis_to_circle[i] < 0.5:
                 rewards[i] += 5  # 当距离目标较近时，给予中等奖励
             elif dis_to_circle[i] < 1.0:
-                rewards[i] += 2  # 当距离目标较近时，给予中等奖励
+                rewards[i] += 2
             else:
                 rewards[i] -= 0.5  # 距离目标较远时，给予惩罚
+
+            # 适度减少速度惩罚
+            rewards[i] -= 0.1 * velocity[i]
+            if dis_to_circle[i] < 0.3:  # 靠近目标需要更小的速度
+                rewards[i] -= 1 * velocity[i]
 
             # 对距离目标过近的情况进行惩罚
             if dis_to_target[i] < 0.13:
@@ -134,9 +139,6 @@ class CircleSpreadAviary(CircleRLAviary):
             # 如果这一step的dis_to_target比上一step小，则给一个正的奖励
             if dis_to_target[i] < self.previous_dis_to_target[i]:
                 rewards[i] += 1  # 你可以调整奖励的数值
-
-            # 适度减少速度惩罚
-            rewards[i] -= 0.1 * velocity[i]
 
         # 队友保持距离与碰撞惩罚
         if self.NUM_DRONES != 1:

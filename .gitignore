@@ -1,0 +1,7 @@
+# 忽略 model 目录下的所有文件
+4.MADDPG_MATD3_MPE/model/
+gym_pybullet_drones/new_envs/model/
+
+# 忽略 runs 目录下的所有文件
+4.MADDPG_MATD3_MPE/runs/
+gym_pybullet_drones/new_envs/runs/

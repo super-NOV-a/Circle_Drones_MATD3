@@ -313,6 +313,32 @@ class CircleBaseAviary(gym.Env):
         # 可能不该使用，真实无人机无法reset
         pass
 
+    def convert_obs_dict_to_array(self, obs_dict):
+        obs_array = []
+        if self.NUM_DRONES != 1:
+            for i in range(self.NUM_DRONES):
+                obs = obs_dict[i]
+                # action_buffer_flat = np.hstack(obs['action_buffer'])    # 拉成一维
+                obs_array.append(np.hstack([
+                    obs['pos'],
+                    obs['rpy'],
+                    obs['vel'],
+                    obs['ang_vel'],
+                    obs['target_pos'],
+                    obs['other_pos'],
+                    obs['last_action']
+                ]))
+        else:
+            pass
+        return np.array(obs_array).astype('float32')
+
+    def to_array_obs(self, obs_dict):
+        if isinstance(obs_dict, dict):
+            obs_array = self.convert_obs_dict_to_array(obs_dict)
+        else:
+            obs_array = obs_dict
+        return obs_array
+
     def reset(self,
               seed: int = None,
               options: dict = None):
@@ -349,7 +375,7 @@ class CircleBaseAviary(gym.Env):
         #### Start video recording #################################
         self._startVideoRecording()
         #### Return the initial observation ########################
-        initial_obs = self._computeObs()
+        initial_obs = self.to_array_obs(self._computeObs())
         initial_info = self._computeInfo()
         # self.see_ball()
         return initial_obs, initial_info
@@ -443,7 +469,7 @@ class CircleBaseAviary(gym.Env):
         self._updateAndStoreKinematicInformation()
         if self.need_target:
             self.update_target_pos()
-        obs = self._computeObs()
+        obs = self.to_array_obs(self._computeObs())
         rewards = self._computeReward()
         terminated, punish = self._computeTerminated()
         truncated = self._computeTruncated()

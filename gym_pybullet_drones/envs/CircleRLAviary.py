@@ -400,7 +400,7 @@ class CircleRLAviary(CircleBaseAviary):
         Returns
         -------
         ndarray
-            A Box() of shape (NUM_DRONES,H,W,4) or (NUM_DRONES,12) depending on the observation type.
+            A Dict of obs
         """
         if self.OBS_TYPE == ObservationType.RGB:
             if self.step_counter % self.IMG_CAPTURE_FREQ == 0:

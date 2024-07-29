@@ -1,13 +1,11 @@
 import torch
 import numpy as np
 from torch.utils.tensorboard import SummaryWriter
-from env.make_env import make_env
 import argparse
 from utils.replay_buffer import ReplayBuffer
-from utils.maddpg import MADDPG
 from utils.matd3 import MATD3
 import copy
-from gym_pybullet_drones.new_envs.CircleSpread_Camera import CircleSpreadAviary
+from gym_pybullet_drones.new_envs.CircleSpread_Camera import CircleCameraAviary
 from gym_pybullet_drones.utils.enums import ObservationType, ActionType
 
 Env_name = 'circle'  # 'spread3d', 'simple_spread'
@@ -28,7 +26,7 @@ class Runner:
         # Create env
         if self.env_name == 'circle':
             Ctrl_Freq = args.Ctrl_Freq  # 30
-            self.env = CircleSpreadAviary(gui=False, num_drones=args.N_drones, obs=ObservationType(self.obs_type),
+            self.env = CircleCameraAviary(gui=False, num_drones=args.N_drones, obs=ObservationType(self.obs_type),
                                           act=ActionType(action),
                                           need_target=True, obs_with_act=True)
             self.timestep = 1 / Ctrl_Freq  # 计算每个步骤的时间间隔 0.003
@@ -53,10 +51,7 @@ class Runner:
         torch.manual_seed(self.seed)
 
         # Create N agents
-        if self.args.algorithm == "MADDPG":
-            print("Algorithm: MADDPG")
-            self.agent_n = [MADDPG(args, agent_id) for agent_id in range(args.N_drones)]
-        elif self.args.algorithm == "MATD3":
+        if self.args.algorithm == "MATD3":
             print("Algorithm: MATD3")
             self.agent_n = MATD3.initialize_agents(args)
         else:
