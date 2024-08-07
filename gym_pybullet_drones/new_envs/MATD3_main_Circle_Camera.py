@@ -85,15 +85,17 @@ class Runner:
     def run(self, ):
         while self.total_steps < self.args.max_train_steps:
             rgb_n, obs_n, _ = self.env.reset()  # gym new api
+            pixels = self.agent.preprocess_rgb(rgb_n)
             train_reward = 0
             rewards_n = [0] * self.args.N_drones
 
             for count in range(self.args.episode_limit):
-                a_n = self.agent.choose_action(rgb_n, obs_n, noise_std=self.noise_std)  # (3,48,64,4) -> (3，4)
+                a_n = self.agent.choose_action(pixels, obs_n, noise_std=self.noise_std)  # (3,48,64,4) -> (3，4)
                 rgb_next_n, obs_next_n, r_n, done_n, _, _ = self.env.step(copy.deepcopy(a_n))
+                pixels_next = self.agent.preprocess_rgb(rgb_next_n)
 
-                self.replay_buffer.store_transition(rgb_n, obs_n, a_n, r_n, rgb_next_n, obs_next_n, done_n)
-                rgb_n, obs_n = rgb_next_n, obs_next_n
+                self.replay_buffer.store_transition(pixels, obs_n, a_n, r_n, pixels_next, obs_next_n, done_n)
+                pixels, obs_n = pixels_next, obs_next_n
                 train_reward += np.mean(r_n)
                 rewards_n = [r + reward for r, reward in zip(rewards_n, r_n)]  # Accumulate rewards for each agent
                 self.total_steps += 1

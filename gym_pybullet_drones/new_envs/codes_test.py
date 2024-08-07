@@ -1,22 +1,42 @@
-import torch
-from torch.distributions import Categorical
-import time
+import numpy as np
 
-# 定义概率分布
-probs = torch.tensor([
-    [0.13243707, 0.12140542, 0.12257885, 0.118792, 0.1231009, 0.12414426, 0.1308618, 0.1266796],
-    [0.13333048, 0.11851338, 0.12312149, 0.12077631, 0.12801889, 0.12291928, 0.12531583, 0.12800433],
-    [0.13425545, 0.12110135, 0.12147482, 0.11911386, 0.12387094, 0.12306637, 0.12980565, 0.12731153]
-])
 
-# 创建Categorical分布
-dist = Categorical(probs=probs)
+def preprocess_rgb(image):
+    """
+    处理图像，将RGBA图像转换为目标检测掩码图像。
 
-# 测量抽样时间
-start_time = time.time()
-samples = dist.sample()
-end_time = time.time()
+    参数:
+    image (ndarray): 形状为 [N, 96, 128, 4] 的 RGBA 图像数据。
 
-# 打印抽样结果和时间
-print("Sampled indices:", samples)
-print("Time taken:", end_time - start_time, "seconds")
+    返回:
+    ndarray: 形状为 [N, 96, 128] 的目标检测掩码图像。
+    """
+    # 将 RGBA 图像的最后一维分离
+    img_rgb = image[:, :, :, :3]
+
+    # 定义颜色范围
+    yellow_min = np.array([180, 180, 0], dtype=np.uint8)
+    yellow_max = np.array([255, 255, 70], dtype=np.uint8)
+    red_min = np.array([180, 0, 0], dtype=np.uint8)
+    red_max = np.array([255, 70, 70], dtype=np.uint8)
+
+    # 转换为浮点数以避免数据类型限制
+    img_rgb = img_rgb.astype(np.float32)
+
+    # 计算黄色和红色掩码
+    yellow_mask = np.all((img_rgb >= yellow_min) & (img_rgb <= yellow_max), axis=-1)
+    red_mask = np.all((img_rgb >= red_min) & (img_rgb <= red_max), axis=-1)
+
+    # 创建掩码图像，黄色为1，红色为-1，其他为0
+    mask_image = np.where(yellow_mask, 1., np.where(red_mask, -1., 0))
+
+    return mask_image
+
+
+# 测试
+# 生成一个示例 RGBA 图像数据，形状为 [N, 96, 128, 4]
+example_image = np.random.randint(0, 256, (3, 96, 128, 4), dtype=np.uint8)
+
+# 调用处理函数
+processed_image = preprocess_rgb(example_image)
+print(processed_image.shape)  # 输出应为 [3, 96, 128]
