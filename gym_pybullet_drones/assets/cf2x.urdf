@@ -24,7 +24,7 @@
         <mesh filename="./cf2.dae" scale=" 1 1 1"/>
       </geometry> 
       <material name="grey">
-        <color rgba=".5 .5 .5 1"/>
+        <color rgba="1 0 0 1"/>
       </material> 
     </visual>
 

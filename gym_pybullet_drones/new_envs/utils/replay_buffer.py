@@ -13,7 +13,10 @@ class ReplayBuffer(object):
 
         # Extract dimensions from Box
         height, width, channels = args.obs_rgb_dim_n[0].shape
-        obs_dim = args.obs_other_dim_n[0].shape[0]
+        if args.discrete:
+            obs_dim = args.obs_other_dim_n[0].shape[0] + args.action_dim_n[0]
+        else:
+            obs_dim = args.obs_other_dim_n[0].shape[0]
 
         # Initialize buffers
         self.buffer_rgb_n = np.empty((self.buffer_size, self.N_drones, height, width, channels), dtype=np.uint8)

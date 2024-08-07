@@ -2,11 +2,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-
 class Actor(nn.Module):
     def __init__(self, args):
         super(Actor, self).__init__()
         self.max_action = args.max_action
+        self.discrete = args.discrete
 
         # 卷积层处理图像数据
         self.conv1 = nn.Conv2d(4, 32, kernel_size=8, stride=4)
@@ -27,11 +27,14 @@ class Actor(nn.Module):
         fc1_input_dim = 64 * height * width
 
         # 从 Box 对象中获取状态信息的维度
-        obs_other_dim = args.obs_other_dim_n[0].shape[0]
+        if self.discrete:
+            obs_other_dim = args.obs_other_dim_n[0].shape[0] + args.action_dim_n[0]
+        else:
+            obs_other_dim = args.obs_other_dim_n[0].shape[0]
 
         # 全连接层处理拼接后的数据
         self.fc1 = nn.Linear(fc1_input_dim + obs_other_dim, args.hidden_dim)
-        self.fc2 = nn.Linear(args.hidden_dim, args.action_dim_n[0])
+        self.fc2 = nn.Linear(args.hidden_dim, args.action_dim_n[0])  # 输出每个动作的分数或值
 
         if args.use_orthogonal_init:
             print("------use_orthogonal_init------")
@@ -63,23 +66,30 @@ class Actor(nn.Module):
         state = state.view(state.size(0), -1)  # 展平为 (batch_size * N_drones, obs_other_dim_n[0])
 
         # 拼接图像数据和位姿等信息  # (batch_size * N_drones, 6144 + 17)
-        x = torch.cat([rgb, state], dim=1)
+        x = torch.cat([rgb, state], dim=1)  # [3,6144], [3,13]
 
         # 全连接层处理拼接后的数据
-        x = F.relu(self.fc1(x))
-        a = self.max_action * torch.tanh(self.fc2(x))
+        x = F.relu(self.fc1(x))     # 6157
+        logits = self.fc2(x)  # 输出每个动作的分数或值
 
         if reshaped:
-            a = a.view(batch_size, N_drones, -1)  # 恢复为 (batch_size, N_drones, action_dim)
+            logits = logits.view(batch_size, N_drones, -1)  # 恢复为 (batch_size, N_drones, action_dim)
 
-        return a
-
+        if self.discrete:
+            # 输出每个动作的选择概率
+            probabilities = F.softmax(logits, dim=-1)
+            return probabilities
+        else:
+            # 连续动作，使用 tanh 限制输出范围在 [-1, 1]，然后缩放到 [-max_action, max_action]
+            actions = self.max_action * torch.tanh(logits)
+            return actions
 
 
 class Critic(nn.Module):
     # 输出为N个智能体的Q值, 如输入(1024,3,48,64,4)->(1024,3)
     def __init__(self, args):
         super(Critic, self).__init__()
+        self.discrete = args.discrete
         self.conv1 = nn.Conv2d(4, 32, kernel_size=8, stride=4)
         self.conv2 = nn.Conv2d(32, 64, kernel_size=4, stride=2)
         self.conv3 = nn.Conv2d(64, 64, kernel_size=3, stride=1)
@@ -96,7 +106,11 @@ class Critic(nn.Module):
         width = conv2d_output_size(width, 3, 1)
         fc1_input_dim = 64 * height * width
 
-        conv_output_size = fc1_input_dim + args.obs_other_dim_n[0].shape[0] + args.action_dim_n[0]
+        if self.discrete:
+            obs_other_dim = args.obs_other_dim_n[0].shape[0] + args.action_dim_n[0]
+        else:
+            obs_other_dim = args.obs_other_dim_n[0].shape[0]
+        conv_output_size = fc1_input_dim + obs_other_dim + args.action_dim_n[0]
         self.fc1 = nn.Linear(conv_output_size, args.hidden_dim)
         self.fc2 = nn.Linear(args.hidden_dim, args.hidden_dim)
         self.fc3 = nn.Linear(args.hidden_dim, 1)
@@ -173,7 +187,6 @@ class Critic(nn.Module):
             q1 = q1.view(batch_size, N_drones, -1)
 
         return q1
-
 
 
 # Example of orthogonal initialization function

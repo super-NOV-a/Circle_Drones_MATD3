@@ -1,8 +1,11 @@
 import os
 import numpy as np
 import pybullet as p
+import torch
 from gymnasium import spaces
 from collections import deque
+
+from torch.distributions import Categorical
 
 from gym_pybullet_drones.new_envs.CircleBase_Camera_Aviary import CircleBaseCameraAviary
 from gym_pybullet_drones.utils.enums import DroneModel, Physics, ActionType, ObservationType, ImageType
@@ -28,7 +31,8 @@ class CircleRLCameraAviary(CircleBaseCameraAviary):
                  act: ActionType = ActionType.RPM,
                  need_target: bool = False,
                  obs_with_act: bool = False,
-                 test=False  # 若测试，则实例化对象时给定初始位置
+                 test: bool = False, # 若测试，则实例化对象时给定初始位置
+                 discrete: bool = False
                  ):
         """Initialization of a generic single and multi-agent RL environment.
 
@@ -65,6 +69,7 @@ class CircleRLCameraAviary(CircleBaseCameraAviary):
             The type of action space (1 or 3D; RPMS, thurst and torques, waypoint or velocity with PID control; etc.)
 
         """
+        self.discrete = discrete  # 动作是否为离散
         #### Create a buffer for the last .5 sec of actions ########
         self.ACTION_BUFFER_SIZE = int(2)  # 动作缓存在此指定，原本是根据控制频率给出的
         self.action_buffer = deque(maxlen=self.ACTION_BUFFER_SIZE)
@@ -93,6 +98,7 @@ class CircleRLCameraAviary(CircleBaseCameraAviary):
                          need_target=need_target,
                          obs_with_act=obs_with_act,
                          test=test,
+                         discrete=discrete,
                          )
         #### Set a limit on the maximum target speed ###############
         if act == ActionType.VEL or act == ActionType.MIXED or act == ActionType.V_YAW:
@@ -107,40 +113,40 @@ class CircleRLCameraAviary(CircleBaseCameraAviary):
         Overrides LyyBaseAviary's method.
 
         """
-        if self.OBS_TYPE == ObservationType.RGB:
-            if self.Test:
-                p.loadURDF("block.urdf",
-                           [1, 0, .2],
-                           p.getQuaternionFromEuler([0, 0, 0]),
-                           physicsClientId=self.CLIENT
-                           )
-                p.loadURDF("block.urdf",
-                           [1, 0, .3],
-                           p.getQuaternionFromEuler([0, 0, 0]),
-                           physicsClientId=self.CLIENT
-                           )
+        if self.Test:
             p.loadURDF("block.urdf",
-                       [1, 0, .1],
+                       [1, 0, .2],
                        p.getQuaternionFromEuler([0, 0, 0]),
                        physicsClientId=self.CLIENT
                        )
-            p.loadURDF("cube_small.urdf",
-                       [0, 1, .1],
+            p.loadURDF("block.urdf",
+                       [1, 0, .3],
                        p.getQuaternionFromEuler([0, 0, 0]),
                        physicsClientId=self.CLIENT
                        )
-            p.loadURDF("duck_vhacd.urdf",
-                       [-1, 0, .1],
-                       p.getQuaternionFromEuler([0, 0, 0]),
-                       physicsClientId=self.CLIENT
-                       )
-            p.loadURDF("teddy_vhacd.urdf",
-                       [0, -1, .1],
-                       p.getQuaternionFromEuler([0, 0, 0]),
-                       physicsClientId=self.CLIENT
-                       )
-        else:
-            pass
+            if self.OBS_TYPE == ObservationType.RGB:
+                p.loadURDF("block.urdf",
+                           [1, 0, .1],
+                           p.getQuaternionFromEuler([0, 0, 0]),
+                           physicsClientId=self.CLIENT
+                           )
+                p.loadURDF("cube_small.urdf",
+                           [0, 1, .1],
+                           p.getQuaternionFromEuler([0, 0, 0]),
+                           physicsClientId=self.CLIENT
+                           )
+                p.loadURDF("duck_vhacd.urdf",
+                           [-1, 0, .1],
+                           p.getQuaternionFromEuler([0, 0, 0]),
+                           physicsClientId=self.CLIENT
+                           )
+                p.loadURDF("teddy_vhacd.urdf",
+                           [0, -1, .1],
+                           p.getQuaternionFromEuler([0, 0, 0]),
+                           physicsClientId=self.CLIENT
+                           )
+            else:
+                pass
 
     ################################################################################
 
@@ -149,38 +155,42 @@ class CircleRLCameraAviary(CircleBaseCameraAviary):
 
         Returns
         -------
-        spaces.Box
-            A Box of size NUM_DRONES x 4, 3, or 1, depending on the action type.
+        list
+            A list of action spaces for each drone, either Box or Discrete.
 
         """
-        if self.ACT_TYPE in [ActionType.RPM, ActionType.VEL]:
-            size = 4
-        elif self.ACT_TYPE == ActionType.PID:
-            size = 3
-        elif self.ACT_TYPE in [ActionType.ONE_D_RPM, ActionType.ONE_D_PID]:
-            size = 1
-        elif self.ACT_TYPE == ActionType.V_YAW:
-            size = 5
+        if self.discrete:
+            # Define discrete action space with 8 possible actions
+            action_space = [8 for _ in range(self.NUM_DRONES)]  # 此处表示为离散值
+            for i in range(self.ACTION_BUFFER_SIZE):
+                self.action_buffer.append(np.zeros((self.NUM_DRONES, 8)))
         else:
-            print("[ERROR] in LyyRLAviary._actionSpace()")
-            exit()
-        act_lower_bound = np.array(-1 * np.ones(size))
-        act_upper_bound = np.array(+1 * np.ones(size))
-        #
-        for i in range(self.ACTION_BUFFER_SIZE):
-            self.action_buffer.append(np.zeros((self.NUM_DRONES, size)))
-        #
-        return [spaces.Box(low=act_lower_bound, high=act_upper_bound, dtype=np.float32) for _ in range(self.NUM_DRONES)]
+            if self.ACT_TYPE in [ActionType.RPM, ActionType.VEL]:
+                size = 4
+            elif self.ACT_TYPE == ActionType.PID:
+                size = 3
+            elif self.ACT_TYPE in [ActionType.ONE_D_RPM, ActionType.ONE_D_PID]:
+                size = 1
+            elif self.ACT_TYPE == ActionType.V_YAW:
+                size = 5
+            else:
+                print("[ERROR] in LyyRLAviary._actionSpace()")
+                exit()
+
+            act_lower_bound = np.array(-1 * np.ones(size))
+            act_upper_bound = np.array(+1 * np.ones(size))
+
+            for i in range(self.ACTION_BUFFER_SIZE):
+                self.action_buffer.append(np.zeros((self.NUM_DRONES, size)))
+
+            action_space = [spaces.Box(low=act_lower_bound, high=act_upper_bound, dtype=np.float32) for _ in
+                            range(self.NUM_DRONES)]
+
+        return action_space
 
     ################################################################################
-
     def _preprocessAction(self, action):
         """Pre-processes the action passed to `.step()` into motors' RPMs.
-
-        Parameter `action` is processed differently for each of the different
-        action types: the input to n-th drone, `action[n]` can be of length
-        1, 3, or 4, and represent RPMs, desired thrust and torques, or the next
-        target position to reach using PID control.
 
         Parameters
         ----------
@@ -194,141 +204,99 @@ class CircleRLCameraAviary(CircleBaseCameraAviary):
             commanded to the 4 motors of each drone.
 
         """
+        safe_penalty = np.zeros(self.NUM_DRONES)  # 如果有不安全的动作则保证动作安全且减小奖励
         self.action_buffer.append(action)
+
+        action_tensor = torch.tensor(action, dtype=torch.float32)
+        action_probs = action_tensor / action_tensor.sum(dim=-1, keepdim=True)
+        dist = Categorical(probs=action_probs)
+        sampled_actions = dist.sample().numpy()
+
         rpm = np.zeros((self.NUM_DRONES, 4))  # 最终计算结果为rpm
-        for k in range(self.NUM_DRONES):  # 第 k 架drones
-            target = action[k]  # 动作直接作为各个方法的目标
-            if self.ACT_TYPE == ActionType.RPM:
-                rpm[k, :] = np.array(self.HOVER_RPM * (1 + 0.05 * target))
-            elif self.ACT_TYPE == ActionType.PID:
-                state = self._getDroneStateVector(k, self.need_target)
-                next_pos = self._calculateNextStep(
-                    current_position=state['pos'],
-                    destination=target,
-                    step_size=1,
-                )
-                rpm_k, _, _ = self.ctrl[k].computeControl(
-                    control_timestep=self.CTRL_TIMESTEP,  # 1/Ctrl_freq=0.001 s
-                    cur_pos=state['pos'],
-                    cur_quat=state['quat'],
-                    cur_vel=state['vel'],
-                    cur_ang_vel=state['ang_vel'],
-                    target_pos=next_pos
-                )
-                rpm[k, :] = rpm_k
-            elif self.ACT_TYPE == ActionType.VEL:
-                state = self._getDroneStateVector(k, self.need_target)
-                if np.linalg.norm(target[0:3]) != 0:
-                    v_unit_vector = target[0:3] / np.linalg.norm(target[0:3])
-                else:
-                    v_unit_vector = np.zeros(3)
+        if self.discrete:
+            for k in range(self.NUM_DRONES):  # 第 k 架drones
+                action_id = sampled_actions[k]  # 使用采样的离散动作
+                state = self._getDroneStateVector(k, self.need_target)  # 获取无人机的状态
+                keep_pos = state['pos']
+                keep_pos[2] = self.init_z
+                v_unit_vector, yaw_change = self.map_action_to_movement(action_id, state['rpy'][2])     # 使用映射函数获取速度方向和偏航改变
+                safe_penalty[k], v_unit_vector = self.enforce_altitude_limits(state['pos'], v_unit_vector)  # 安全动作
                 temp, _, _ = self.ctrl[k].computeControl(
                     control_timestep=self.CTRL_TIMESTEP,
                     cur_pos=state['pos'],
                     cur_quat=state['quat'],
                     cur_vel=state['vel'],
                     cur_ang_vel=state['ang_vel'],
-                    target_pos=state['pos'],  # same as the current position
-                    target_rpy=np.array([0, 0, state['rpy'][2]]),  # keep current yaw
-                    target_vel=self.SPEED_LIMIT * np.abs(target[3]) * v_unit_vector
-                    # target the desired velocity vector
+                    target_pos=keep_pos,  # same as the current position
+                    target_rpy=np.array([0, 0, state['rpy'][2] + yaw_change]),  # add target yaw
+                    target_vel=0.4*state['vel'] + 0.6*self.SPEED_LIMIT * v_unit_vector  # 设置速度
                 )
                 rpm[k, :] = temp
-            elif self.ACT_TYPE == ActionType.ONE_D_RPM:
-                rpm[k, :] = np.repeat(self.HOVER_RPM * (1 + 0.05 * target), 4)
-            elif self.ACT_TYPE == ActionType.ONE_D_PID:
-                state = self._getDroneStateVector(k)
-                res, _, _ = self.ctrl[k].computeControl(
-                    control_timestep=self.CTRL_TIMESTEP,
-                    cur_pos=state['pos'],
-                    cur_quat=state['quat'],
-                    cur_vel=state['vel'],
-                    cur_ang_vel=state['ang_vel'],
-                    target_pos=state['pos'] + 0.1 * np.array([0, 0, target[0]])
-                )
-                rpm[k, :] = res
-            elif self.ACT_TYPE == ActionType.V_YAW:  # [0:4]维速度，第4维偏航角
-                state = self._getDroneStateVector(k, self.need_target)  # get image
-                if np.linalg.norm(target[:3]) != 0:
-                    v_unit_vector = target[:3] / np.linalg.norm(target[:3])
-                else:
-                    v_unit_vector = np.zeros(3)
-                temp, _, _ = self.ctrl[k].computeControl(
-                    control_timestep=self.CTRL_TIMESTEP,
-                    cur_pos=state['pos'],
-                    cur_quat=state['quat'],
-                    cur_vel=state['vel'],
-                    cur_ang_vel=state['ang_vel'],
-                    target_pos=state['pos'],  # same as the current position
-                    target_rpy=np.array([0, 0, state['rpy'][2] + target[4]*0.2]),  # add target yaw
-                    target_vel=self.SPEED_LIMIT * np.abs(target[3]) * 0.4 * v_unit_vector  # 额外乘0.4保证飞行稳定
-                )
-                rpm[k, :] = temp
-            else:
-                print("[ERROR] _preprocessAction()")
-                exit()
-        return rpm
-
-    def try_continue(self, action):  # 仅测试一个
-        rpm = np.zeros((self.NUM_DRONES, 4))  # 最终计算结果为rpm
-        target = action
-        if self.ACT_TYPE == ActionType.VEL:
-            state = self._getDroneStateVector(0, self.need_target)
-            if np.linalg.norm(target[0:3]) != 0:
-                v_unit_vector = target[0:3] / np.linalg.norm(target[0:3])
-            else:
-                v_unit_vector = np.zeros(3)
-            temp, _, _ = self.ctrl[0].computeControl(
-                control_timestep=self.CTRL_TIMESTEP,
-                cur_pos=state['pos'],
-                cur_quat=state['quat'],
-                cur_vel=state['vel'],
-                cur_ang_vel=state['ang_vel'],
-                target_pos=state['pos'],  # same as the current position
-                target_rpy=np.array([0, 0, state['rpy'][2]]),  # keep current yaw
-                target_vel=self.SPEED_LIMIT * np.abs(target[3]) * v_unit_vector
-                # target the desired velocity vector
-            )
-            rpm[0, :] = temp
-        return rpm
-
-    def try_discrete(self, action):
-        rpm = np.zeros((self.NUM_DRONES, 4))
-        state = self._getDroneStateVector(0, self.need_target)
-        target = state['pos'].copy()  # 开始时目标就是原位置，.copy保证不会优化掉
-        target_yaw = state['rpy'][2]
-        dist = 0.1
-        if action == 0:
-            print('前进')
-            target[0] += dist * np.cos(target_yaw)  # x方向移动，根据偏航角调整
-            target[1] += dist * np.sin(target_yaw)  # y方向移动，根据偏航角调整
-        elif action == 1:
-            print('后退')
-            target[0] -= dist * np.cos(target_yaw)  # x方向移动，根据偏航角调整
-            target[1] -= dist * np.sin(target_yaw)  # y方向移动，根据偏航角调整
-        elif action == 2:
-            target_yaw += 0.5  # yaw增加
-        elif action == 3:
-            target_yaw -= 0.5  # yaw减小
         else:
-            pass
-        print('移动向量:', target - state['pos'])
-        next_pos = self._calculateNextStep(
-            current_position=state['pos'],
-            destination=target,
-            step_size=1,
-        )
-        rpm_k, _, _ = self.ctrl[0].computeControl(
-            control_timestep=self.CTRL_TIMESTEP,  # 1/Ctrl_freq=0.001 s
-            cur_pos=state['pos'],
-            cur_quat=state['quat'],
-            cur_vel=state['vel'],
-            cur_ang_vel=state['ang_vel'],
-            target_pos=next_pos,
-            target_rpy=np.array([0, 0, target_yaw])
-        )
-        rpm[0, :] = rpm_k
-        return rpm
+            for k in range(self.NUM_DRONES):  # 第 k 架drones
+                target = action[k]  # 动作直接作为各个方法的目标
+                if self.ACT_TYPE == ActionType.V_YAW:  # [0:4]维速度，第4维偏航角
+                    state = self._getDroneStateVector(k, self.need_target)  # get image
+                    if np.linalg.norm(target[:3]) != 0:
+                        v_unit_vector = target[:3] / np.linalg.norm(target[:3])
+                    else:
+                        v_unit_vector = np.zeros(3)
+
+                    # 检查当前z位置，调整z方向速度
+                    if state['pos'][2] < 0.1 and v_unit_vector[2] < 0:
+                        v_unit_vector[2] = 0
+                        safe_penalty[k] += 20
+
+                    temp, _, _ = self.ctrl[k].computeControl(
+                        control_timestep=self.CTRL_TIMESTEP,
+                        cur_pos=state['pos'],
+                        cur_quat=state['quat'],
+                        cur_vel=state['vel'],
+                        cur_ang_vel=state['ang_vel'],
+                        target_pos=state['pos'],  # same as the current position
+                        target_rpy=np.array([0, 0, state['rpy'][2] + target[4]*0.1]),  # add target yaw
+                        target_vel=self.SPEED_LIMIT * np.abs(target[3]) * 0.8 * v_unit_vector  # 额外乘0.4保证飞行稳定
+                    )
+                    rpm[k, :] = temp
+                else:
+                    print("[ERROR] _preprocessAction()")
+                    exit()
+        return rpm, safe_penalty
+
+    def enforce_altitude_limits(self, pos, v_unit_vector):
+        safe_penalty = 0
+        if pos[0] < -2 and v_unit_vector[0] < 0:       # 限制x轴位置
+            v_unit_vector[0] = 0.5
+            safe_penalty += 20
+        elif pos[0] > 2 and v_unit_vector[0] > 0:
+            v_unit_vector[0] = -0.5
+            safe_penalty += 20
+        if pos[1] < -2 and v_unit_vector[1] < 0:        # 限制y轴位置
+            v_unit_vector[1] = 0.5
+            safe_penalty += 20
+        elif pos[1] > 2 and v_unit_vector[1] > 0:
+            v_unit_vector[1] = -0.5
+            safe_penalty += 20
+        return safe_penalty, v_unit_vector
+
+    def map_action_to_movement(self, action_id, current_yaw):
+        cos_yaw, sin_yaw = np.cos(current_yaw), np.sin(current_yaw)  # 创建旋转矩阵用于将速度向量从机体坐标系转换到世界坐标系
+        rotation_matrix = np.array([        # 旋转矩阵，用于将无人机在当前航向上的前进后退方向转换为世界坐标系
+            [cos_yaw, -sin_yaw, 0],
+            [sin_yaw, cos_yaw, 0],
+            [0, 0, 1]])
+        action_map = {
+            0: (np.array([1.5, 0, 0]), 0),    # 全速前进
+            1: (np.array([1, 0, 0]), 0),  # 缓速前进
+            2: (np.array([-1, 0, 0]), 0),  # 后退
+            3: (np.array([0, 0, 0]), 0),    # 保持位置
+            4: (np.array([0, 0, 0]), -0.2),  # 全速左转
+            5: (np.array([0, 0, 0]), -0.1),  # 缓速左转
+            6: (np.array([0, 0, 0]), 0.2),  # 全速右转
+            7: (np.array([0, 0, 0]), 0.1)}  # 缓速右转
+        v_unit_vector, yaw_change = action_map.get(action_id, (np.array([0, 0, 0]), 0))     # 获取基础的速度向量和偏航角改变
+        v_unit_vector = rotation_matrix @ v_unit_vector         # 将速度向量旋转到无人机当前航向的方向
+        return v_unit_vector, yaw_change
 
     ################################################################################
 
@@ -349,13 +317,18 @@ class CircleRLCameraAviary(CircleBaseCameraAviary):
             obs_lower_bound = np.array([lo, lo, lo, lo, lo, lo, lo, lo, lo, lo, lo, lo])
             obs_upper_bound = np.array([hi, hi, hi, hi, hi, hi, hi, hi, hi, hi, hi, hi])
             #### Add action buffer to observation space ################
-            if Obs_act == True:  # 6/12 观测动作为Flase 这样避免了麻烦
-                act_lo, act_hi = -1, +1  # 动作为VEL_YAW 5维
-                obs_lower_bound = np.hstack([obs_lower_bound, np.array([act_lo, act_lo, act_lo, act_lo, act_lo])])
-                obs_upper_bound = np.hstack([obs_upper_bound, np.array([act_hi, act_hi, act_hi, act_hi, act_hi])])
-            space_2 = [spaces.Box(low=obs_lower_bound, high=obs_upper_bound, dtype=np.float32) for _ in
-                       range(self.NUM_DRONES)]
-            return space_1, space_2
+            if self.discrete:
+                space_2 = [spaces.Box(low=obs_lower_bound, high=obs_upper_bound, dtype=np.float32) for _ in
+                           range(self.NUM_DRONES)]
+                return space_1, space_2    # RBGs, states(12), （actions从动作观测中获取吧）
+            else:
+                if Obs_act == True:  # 6/12 观测动作为Flase 这样避免了麻烦
+                    act_lo, act_hi = -1, +1  # 动作为VEL_YAW 5维
+                    obs_lower_bound = np.hstack([obs_lower_bound, np.array([act_lo, act_lo, act_lo, act_lo, act_lo])])
+                    obs_upper_bound = np.hstack([obs_upper_bound, np.array([act_hi, act_hi, act_hi, act_hi, act_hi])])
+                space_2 = [spaces.Box(low=obs_lower_bound, high=obs_upper_bound, dtype=np.float32) for _ in
+                           range(self.NUM_DRONES)]
+                return space_1, space_2
         elif self.OBS_TYPE == ObservationType.KIN_target:  # 位姿加上目标位置+4维动作  #不需要+(num_drones-1)*其他无人机位置
             ############################################################
             lo, hi = -np.inf, np.inf
@@ -398,11 +371,11 @@ class CircleRLCameraAviary(CircleBaseCameraAviary):
         Returns
         -------
         ndarray
-            A RGB array, A Dict of obs
+            A RGB uint8 array, A Dict of obs
         """
-        if self.step_counter % self.IMG_CAPTURE_FREQ == 0:  # 应该是每240 step 拍一张
-            for i in range(self.NUM_DRONES):
-                self.rgb[i], _, _ = self._getDroneImages(i, segmentation=False)
+        # if self.step_counter % self.IMG_CAPTURE_FREQ == 0:  # 应该是每240 step 拍一张，现在每1帧后等待29帧满足240steps.1s难以接受，直接使用30Hz吧
+        for i in range(self.NUM_DRONES):
+            self.rgb[i], _, _ = self._getDroneImages(i, segmentation=False)
         obs_dict = {}
         for i in range(self.NUM_DRONES):
             obs = self._getDroneStateVector(i, self.need_target)  # 如果True， obs['target_pos']是无人机指向目标的向量
@@ -413,7 +386,7 @@ class CircleRLCameraAviary(CircleBaseCameraAviary):
                 'ang_vel': obs['ang_vel'],  # 3
                 'last_action': self.action_buffer[-1][i]  # 添加一个动作 5
             }
-        return np.array([self.rgb[i] for i in range(self.NUM_DRONES)]).astype('float32'), self.to_array_obs(obs_dict)
+        return self.rgb, self.to_array_obs(obs_dict)
         ############################################################
 
     def convert_obs_dict_to_array(self, obs_dict):
@@ -437,7 +410,7 @@ class CircleRLCameraAviary(CircleBaseCameraAviary):
             obs_array = obs_dict
         return obs_array
 
-    def _computeObs(self, Obs_act=False):
+    def _computeObs(self, Obs_act=False):   # 现在没有使用
         """Returns the current observation of the environment.
             这里需要注意修改后保证上面的观测空间一致
             如果观测有 target 则返回 dict
@@ -459,7 +432,7 @@ class CircleRLCameraAviary(CircleBaseCameraAviary):
                                           path=self.ONBOARD_IMG_PATH + "drone_" + str(i),
                                           frame_num=int(self.step_counter / self.IMG_CAPTURE_FREQ)
                                           )
-            return np.array([self.rgb[i] for i in range(self.NUM_DRONES)]).astype('float32')
+            return self.rgb
         ############################################################
         elif self.OBS_TYPE == ObservationType.KIN_target:  # 添加目标位置,其他智能体信息相当于通信信息而非观测
             obs_dict = {}

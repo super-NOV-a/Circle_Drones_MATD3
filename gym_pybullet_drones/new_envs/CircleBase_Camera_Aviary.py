@@ -16,32 +16,27 @@ from gym_pybullet_drones.utils.enums import DroneModel, Physics, ImageType
 
 def generate_non_overlapping_positions_numpy(scale=1.0):
     """
-    生成不重叠的位置，并根据scale参数调整生成范围的大小。
+    生成不重叠的位置，并根据 scale 参数调整生成范围的大小。
 
     参数:
-    scale (float): 用于调整生成范围的大小。默认为1，即生成范围为[-1, 1]。
+    scale (float): 用于调整生成范围的大小。默认为 1，即生成范围为 [-1, 1]。
 
     返回:
-    list: 生成的位置列表，每个位置为(x, y, z)的元组。
+    list: 生成的位置列表，每个位置为 (x, y, z) 的元组。
     """
-    # 单元格大小固定为0.4
-    cell_size = 0.5
-    # 计算新的总范围
-    total_range = 2 * scale
-    divisions = int(total_range / cell_size)
-
-    # 生成所有可能的单元格坐标
-    cell_coordinates = np.array(
-        [(x, y) for x in range(divisions) for y in range(divisions)])
+    cell_size = 0.5    # 单元格大小固定为 0.5
+    total_range = 2 * scale    # 计算新的总范围
+    divisions = int(total_range / cell_size)    # 计算划分数目
+    cell_coordinates = np.array([(x, y) for x in range(divisions) for y in range(divisions)])    # 生成所有可能的单元格坐标
     np.random.shuffle(cell_coordinates)
+    z = np.random.uniform(0.1, 1)  # 在 [0, 1] 范围内生成随机 z 坐标，全部无人机共用
     positions = []  # 生成位置列表
-    for cell_coord in cell_coordinates:  # 在每个单元格内随机生成一个位置
+    for cell_coord in cell_coordinates:    # 生成位置
         x = np.random.uniform(cell_coord[0] * cell_size - scale, (cell_coord[0] + 1) * cell_size - scale)
         y = np.random.uniform(cell_coord[1] * cell_size - scale, (cell_coord[1] + 1) * cell_size - scale)
-        z = np.random.uniform(0.2, 1.2)  # 保持z范围不变
+
         positions.append((x, y, z))
     return positions
-
 
 # 例子
 # positions = generate_non_overlapping_positions_numpy(scale=2)
@@ -65,7 +60,8 @@ class CircleBaseCameraAviary(gym.Env):
                  output_folder='results',
                  need_target=False,
                  obs_with_act=False,
-                 test=False  # 若测试，则实例化对象时给定初始位置
+                 test=False,  # 若测试，则实例化对象时给定初始位置
+                 discrete=False
                  ):
         #### Constants #############################################
         self.G = 9.8
@@ -124,7 +120,7 @@ class CircleBaseCameraAviary(gym.Env):
             self.IMG_RES = np.array([128, 96])
             self.IMG_FRAME_PER_SEC = 1
             self.IMG_CAPTURE_FREQ = int(self.PYB_FREQ / self.IMG_FRAME_PER_SEC)  # 周期为：240/1 步
-            self.rgb = np.zeros(((self.NUM_DRONES, self.IMG_RES[1], self.IMG_RES[0], 4)))
+            self.rgb = np.zeros((self.NUM_DRONES, self.IMG_RES[1], self.IMG_RES[0], 4), dtype=np.uint8)
             self.dep = np.ones(((self.NUM_DRONES, self.IMG_RES[1], self.IMG_RES[0])))
             self.seg = np.zeros(((self.NUM_DRONES, self.IMG_RES[1], self.IMG_RES[0])))
             if self.IMG_CAPTURE_FREQ % self.PYB_STEPS_PER_CTRL != 0:  # 8/8
@@ -195,7 +191,7 @@ class CircleBaseCameraAviary(gym.Env):
                 self.INIT_XYZS = self.get_init()
         elif np.array(initial_xyzs).shape == (self.NUM_DRONES, 3):
             self.INIT_XYZS = initial_xyzs
-            self.TARGET_POS = np.array([0, 0, 1])
+            self.TARGET_POS = np.array([0, 0, 0.8])
         else:
             print("[ERROR] invalid initial_xyzs in BaseAviary.__init__(), try initial_xyzs.reshape(NUM_DRONES,3)")
         if initial_rpys is None:
@@ -215,6 +211,8 @@ class CircleBaseCameraAviary(gym.Env):
         self._updateAndStoreKinematicInformation()
         #### Start video recording #################################
         self._startVideoRecording()
+        ## 为了满足每1s拍照后进行一个动作，在进行一帧动作后的29帧里保持不动
+        # self.delay_action = np.array([[0, 0, 0, 0, 0] for _ in range(self.NUM_DRONES)])
 
     ################################################################################
     def get_init(self):
@@ -223,10 +221,7 @@ class CircleBaseCameraAviary(gym.Env):
         """
         if self.need_target:
             init_pos = np.stack(random.sample(self.cell_pos, self.NUM_DRONES + 1))
-            # 指定target为一个随机范围
-            target = np.array([np.random.uniform(-1, 1), np.random.uniform(-1, 1),
-                               np.random.uniform(0.5, 1)])
-            return init_pos[:3], target
+            return init_pos[:3], init_pos[3]
         else:
             init_pos = np.stack(random.sample(self.cell_pos, self.NUM_DRONES))
             # init_pos = np.array([[1, 1, 1], [-1, -1, 0], [1, -1, 1]])
@@ -377,32 +372,29 @@ class CircleBaseCameraAviary(gym.Env):
                                                           physicsClientId=self.CLIENT
                                                           ) for i in range(self.NUM_DRONES)]
         else:
-            clipped_action = np.reshape(self._preprocessAction(action), (self.NUM_DRONES, 4))
+            clip_action, safe_penalty = self._preprocessAction(action)
+            clipped_action = np.reshape(clip_action, (self.NUM_DRONES, 4))
 
-        for STEP in range(self.PYB_STEPS_PER_CTRL):
+        for STEP in range(self.PYB_STEPS_PER_CTRL):     # 8步
             if self.PYB_STEPS_PER_CTRL > 1 and self.PHYSICS in [Physics.DYN, Physics.PYB_GND, Physics.PYB_DRAG,
                                                                 Physics.PYB_DW, Physics.PYB_GND_DRAG_DW]:
                 self._updateAndStoreKinematicInformation()
-
             for i in range(self.NUM_DRONES):
                 self.apply_physics(clipped_action[i, :], i)
-
             if self.PHYSICS != Physics.DYN:
                 p.stepSimulation(physicsClientId=self.CLIENT)
-            self.last_clipped_action = clipped_action
-
         self._updateAndStoreKinematicInformation()
+        self.last_clipped_action = clipped_action
         if self.need_target:
             self.update_target_pos()
         rgbs, states = self._computeAllObs()  # array, array
-        rewards = self._computeReward()
-        terminated, punish = self._computeTerminated()
+        rewards = self._computeReward() - safe_penalty
+        terminated = self._computeTerminated()
         truncated = self._computeTruncated()
         info = self._computeInfo()
         self.step_counter += (1 * self.PYB_STEPS_PER_CTRL)
-        adjusted_rewards = [reward - 1 * p for reward, p in zip(rewards, punish)]
 
-        return rgbs, states, adjusted_rewards, terminated, truncated, info
+        return rgbs, states, rewards, terminated, truncated, info
 
     ################################################################################
 
@@ -534,6 +526,7 @@ class CircleBaseCameraAviary(gym.Env):
                 self.INIT_XYZS, self.TARGET_POS = self.get_init()  # 重新给出位置
             else:
                 self.INIT_XYZS = self.get_init()
+        self.init_z = self.INIT_XYZS[0][2]
         self.PLANE_ID = p.loadURDF("plane.urdf", physicsClientId=self.CLIENT)
 
         self.DRONE_IDS = np.array(

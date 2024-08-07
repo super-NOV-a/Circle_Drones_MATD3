@@ -4,7 +4,6 @@ import torch.nn.functional as F
 import copy
 from .networks import Actor, Critic
 
-
 class MATD3(object):
     def __init__(self, args):
         self.max_action = args.max_action
@@ -16,6 +15,7 @@ class MATD3(object):
         self.policy_noise = args.policy_noise
         self.noise_clip = args.noise_clip
         self.policy_update_freq = args.policy_update_freq
+        self.discrete = args.discrete
 
         self.device = args.device
 
@@ -32,12 +32,22 @@ class MATD3(object):
 
         self.actor_pointer = 0  # 训练计数器
 
-    def choose_action(self, rgb_n, obs_n, noise_std):
+    def choose_action(self, rgb_n, obs_n, noise_std=0):
         rgb_n = torch.tensor(rgb_n/255.0, dtype=torch.float).to(self.device)
         obs_n = torch.tensor(obs_n, dtype=torch.float).to(self.device)
-        a_n = self.actor(rgb_n, obs_n).data.cpu().numpy()   # .flatten()
-        a_n += np.random.normal(0, noise_std, size=a_n.shape)
-        return a_n.clip(-self.max_action, self.max_action)
+        with torch.no_grad():
+            if self.discrete:
+                # 离散动作选择
+                action_probs = self.actor(rgb_n, obs_n)
+                # action_indices = torch.argmax(action_probs, dim=-1)
+                # a_n = action_indices.cpu().numpy()
+                a_n = action_probs.cpu().numpy()
+            else:
+                # 连续动作选择
+                a_n = self.actor(rgb_n, obs_n).data.cpu().numpy()
+                a_n += np.random.normal(0, noise_std, size=a_n.shape)
+                a_n = a_n.clip(-self.max_action, self.max_action)
+        return a_n
 
     def train(self, replay_buffer):
         self.actor_pointer += 1
@@ -46,12 +56,19 @@ class MATD3(object):
 
         # Compute target_Q
         with torch.no_grad():
-            batch_a_next = self.actor_target(batch_rgb_next_n, batch_obs_next_n)  # (1024,3,48,64,4), -> (1024,3,4)
-            noise = torch.randn_like(batch_a_next) * self.policy_noise
-            noise = noise.clamp(-self.noise_clip, self.noise_clip)
-            batch_a_next = (batch_a_next + noise).clamp(-self.max_action, self.max_action)  # (1024,3,4)
+            batch_a_next = self.actor_target(batch_rgb_next_n, batch_obs_next_n)
+            if self.discrete:
+                # 离散动作选择
+                batch_a_next = torch.argmax(batch_a_next, dim=-1)
+                # 将动作索引转换为one-hot向量
+                batch_a_next = F.one_hot(batch_a_next, num_classes=self.actor.fc2.out_features).float()
+            else:
+                # 连续动作
+                noise = torch.randn_like(batch_a_next) * self.policy_noise
+                noise = noise.clamp(-self.noise_clip, self.noise_clip)
+                batch_a_next = (batch_a_next + noise).clamp(-self.max_action, self.max_action)
 
-            Q1_next, Q2_next = self.critic_target(batch_rgb_next_n, batch_obs_next_n, batch_a_next)  # 输出应当是 (1024,3)
+            Q1_next, Q2_next = self.critic_target(batch_rgb_next_n, batch_obs_next_n, batch_a_next)
             target_Q = batch_r_n + self.gamma * (1 - batch_done_n) * torch.min(Q1_next, Q2_next)
 
         # Compute current_Q
@@ -68,6 +85,10 @@ class MATD3(object):
         # Delayed policy updates
         if self.actor_pointer % self.policy_update_freq == 0:
             batch_a_n = self.actor(batch_rgb_n, batch_obs_n)
+            if self.discrete:
+                # 离散动作
+                batch_a_n = F.one_hot(torch.argmax(batch_a_n, dim=-1), num_classes=self.actor.fc2.out_features).float()
+
             actor_loss = -self.critic.Q1(batch_rgb_n, batch_obs_n, batch_a_n).mean()
 
             # Optimize the actor

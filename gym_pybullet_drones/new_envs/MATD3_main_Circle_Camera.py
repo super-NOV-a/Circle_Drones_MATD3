@@ -16,6 +16,7 @@ class Runner:
     def __init__(self, args):
         self.args = args
         self.args.decive = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.args.discrete = True
         self.env_name = Env_name
         self.number = args.N_drones
         self.seed = 1145  # 保证一个seed，名称使用记号--mark
@@ -28,18 +29,24 @@ class Runner:
             Ctrl_Freq = args.Ctrl_Freq  # 30
             self.env = CircleCameraAviary(gui=True, num_drones=args.N_drones, obs=ObservationType(self.args.obs_type),
                                           act=ActionType(action),
-                                          need_target=True, obs_with_act=True)
+                                          need_target=True, obs_with_act=True, discrete=self.args.discrete)
             self.timestep = 1 / Ctrl_Freq  # 计算每个步骤的时间间隔 0.003
 
             # self.env.observation_space.shape = box[N,78]
-            if ObservationType(self.args.obs_type) == ObservationType.RGB:  # obs_space:Box(0, 255, (3,48,64,4))
+            if self.args.discrete:
                 self.args.obs_rgb_dim_n, self.args.obs_other_dim_n = self.env.observation_space
-            elif ObservationType(self.args.obs_type) == ObservationType.KIN_target:
-                self.args.obs_dim_n = [self.env.observation_space[i].shape[0] for i in range(self.env.NUM_DRONES)]
             else:
-                raise ValueError("Unsupported observation type")
-            self.args.action_dim_n = [self.env.action_space[i].shape[0] for i in
-                                      range(self.args.N_drones)]  # actions dimensions of N agents
+                if ObservationType(self.args.obs_type) == ObservationType.RGB:  # obs_space:Box(0, 255, (3,48,64,4))
+                    self.args.obs_rgb_dim_n, self.args.obs_other_dim_n = self.env.observation_space
+                elif ObservationType(self.args.obs_type) == ObservationType.KIN_target:
+                    self.args.obs_dim_n = [self.env.observation_space[i].shape[0] for i in range(self.env.NUM_DRONES)]
+                else:
+                    raise ValueError("Unsupported observation type")
+            if self.args.discrete:
+                self.args.action_dim_n = self.env.action_space
+            else:
+                self.args.action_dim_n = [self.env.action_space[i].shape[0] for i in
+                                          range(self.args.N_drones)]  # actions dimensions of N agents
 
             if ObservationType(self.args.obs_type) == ObservationType.RGB:
                 print(f"obs_rgb_dim_n={self.args.obs_rgb_dim_n}, obs_other_dim_n={self.args.obs_other_dim_n}")
@@ -82,7 +89,7 @@ class Runner:
             rewards_n = [0] * self.args.N_drones
 
             for count in range(self.args.episode_limit):
-                a_n = self.agent.choose_action(rgb_n, obs_n, noise_std=self.noise_std)     # (3,48,64,4) -> (3，4)
+                a_n = self.agent.choose_action(rgb_n, obs_n, noise_std=self.noise_std)  # (3,48,64,4) -> (3，4)
                 rgb_next_n, obs_next_n, r_n, done_n, _, _ = self.env.step(copy.deepcopy(a_n))
 
                 self.replay_buffer.store_transition(rgb_n, obs_n, a_n, r_n, rgb_next_n, obs_next_n, done_n)
@@ -102,7 +109,7 @@ class Runner:
                     break
 
             if self.replay_buffer.current_size > self.args.batch_size:
-                for _ in range(50):
+                for _ in range(20):  # 多次训练
                     self.agent.train(self.replay_buffer)  # 调用共享的训练方法，不再传递self.agent_n或self.agent_id
 
             print(f"total_steps:{self.total_steps} \t train_reward:{int(train_reward)} \t noise_std:{self.noise_std}")
