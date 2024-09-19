@@ -8,3 +8,5 @@ gym_pybullet_drones/new_envs/runs/
 
 # 忽略circle camera环境
 5.RNN_MATD3_Circle/
+
+git_steps.md
