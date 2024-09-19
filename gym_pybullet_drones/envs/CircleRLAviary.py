@@ -174,7 +174,7 @@ class CircleRLAviary(CircleBaseAviary):
             act_lower_bound = np.array(-1 * np.ones(size))
             act_upper_bound = np.array(+1 * np.ones(size))
 
-            for i in range(self.ACTION_BUFFER_SIZE):
+            for i in range(self.ACTION_BUFFER_SIZE):    # 初始时填充为0
                 self.action_buffer.append(np.zeros((self.NUM_DRONES, size)))
 
             return [spaces.Box(low=act_lower_bound, high=act_upper_bound, dtype=np.float32) for _ in
@@ -238,7 +238,7 @@ class CircleRLAviary(CircleBaseAviary):
                     cur_ang_vel=state['ang_vel'],
                     target_pos=state['pos'],  # same as the current position
                     target_rpy=np.array([0, 0, state['rpy'][2]]),  # keep current yaw
-                    target_vel=self.SPEED_LIMIT * np.abs(target[3]) * v_unit_vector
+                    target_vel=self.SPEED_LIMIT * np.abs(target[3]) * v_unit_vector * 0.8
                     # target the desired velocity vector
                 )
                 rpm[k, :] = temp
@@ -324,6 +324,7 @@ class CircleRLAviary(CircleBaseAviary):
             这是观测空间的定义，下面有观测的计算过程
             A Box() of shape (NUM_DRONES,H,W,4) or (NUM_DRONES,12) depending on the observation type.
         """
+        lo, hi, act_lo, act_hi = -np.inf, np.inf, -1, +1
         if self.OBS_TYPE == ObservationType.RGB:
             return spaces.Box(low=0,
                               high=255,
@@ -332,15 +333,11 @@ class CircleRLAviary(CircleBaseAviary):
             ############################################################
             #### OBS SPACE OF SIZE 12
             #### Observation vector ### X        Y        Z       Q1   Q2   Q3   Q4   R       P       Y       VX       VY       VZ       WX       WY       WZ
-            lo = -np.inf
-            hi = np.inf
             obs_lower_bound = np.array(
                 [[lo, lo, 0, lo, lo, lo, lo, lo, lo, lo, lo, lo] for i in range(self.NUM_DRONES)])
             obs_upper_bound = np.array(
                 [[hi, hi, hi, hi, hi, hi, hi, hi, hi, hi, hi, hi] for i in range(self.NUM_DRONES)])
             #### Add action buffer to observation space ################
-            act_lo = -1
-            act_hi = +1
             for i in range(self.ACTION_BUFFER_SIZE):
                 if self.ACT_TYPE in [ActionType.RPM, ActionType.VEL]:
                     obs_lower_bound = np.hstack(
@@ -357,14 +354,46 @@ class CircleRLAviary(CircleBaseAviary):
                     obs_upper_bound = np.hstack([obs_upper_bound, np.array([[act_hi] for i in range(self.NUM_DRONES)])])
             return spaces.Box(low=obs_lower_bound, high=obs_upper_bound, dtype=np.float32)
             ############################################################
-        elif self.OBS_TYPE == ObservationType.KIN_target:  # 位姿加上目标位置+4维动作  #不需要+(num_drones-1)*其他无人机位置
+        elif self.OBS_TYPE == ObservationType.KIN_target_PO:  # 位姿加上目标位置+3维势能+4维动作  #需要+(num_drones-1)*其他无人机位置
             ############################################################
             lo = -np.inf
             hi = np.inf
             # 创建 obs_bound,           X    Y   Z   R   P   Y   VX  VY  VZ  WX  WY  WZ  TX, TY, TZ, Tpos
             obs_lower_bound = np.array([lo, lo, lo,  lo, lo, lo, lo, lo, lo, lo, lo, lo, lo, lo, lo, 0])
             obs_upper_bound = np.array([hi, hi, hi, hi, hi, hi, hi, hi, hi, hi, hi, hi, hi, hi, hi, hi])
-            # 使用 np.tile 扩展位置和距离边界
+            # 使用 np.tile 扩展位置和距离边界  POS for others
+            position_bounds_lower = np.tile([lo, lo, lo, 0], self.NUM_DRONES - 1)
+            position_bounds_upper = np.tile([hi, hi, hi, hi], self.NUM_DRONES - 1)
+            # 新增势能作为obs    三维方向三维的力
+            Fs_lower = np.array([lo, lo, lo])
+            Fs_upper = np.array([hi, hi, hi])
+            # 连接初始边界和扩展的边界
+            obs_lower_bound = np.concatenate((obs_lower_bound, position_bounds_lower, Fs_lower))
+            obs_upper_bound = np.concatenate((obs_upper_bound, position_bounds_upper, Fs_upper))
+            #### Add action buffer to observation space ################
+            if Obs_act == True:     # 6/12 观测动作为Flase 这样避免了麻烦
+                act_lo = -1
+                act_hi = +1
+                # for i in range(self.ACTION_BUFFER_SIZE):  # 30//2 次   只保存一次的动作
+                if self.ACT_TYPE in [ActionType.RPM, ActionType.VEL]:
+                    obs_lower_bound = np.hstack([obs_lower_bound, np.array([act_lo, act_lo, act_lo, act_lo])])
+                    obs_upper_bound = np.hstack([obs_upper_bound, np.array([act_hi, act_hi, act_hi, act_hi])])
+                elif self.ACT_TYPE == ActionType.PID:
+                    obs_lower_bound = np.hstack([obs_lower_bound, np.array([act_lo, act_lo, act_lo])])
+                    obs_upper_bound = np.hstack([obs_upper_bound, np.array([act_hi, act_hi, act_hi])])
+                elif self.ACT_TYPE in [ActionType.ONE_D_RPM, ActionType.ONE_D_PID]:
+                    obs_lower_bound = np.hstack([obs_lower_bound, np.array([act_lo])])
+                    obs_upper_bound = np.hstack([obs_upper_bound, np.array([act_hi])])
+            # print(obs_upper_bound)
+            return [spaces.Box(low=obs_lower_bound, high=obs_upper_bound, dtype=np.float32) for _ in
+                    range(self.NUM_DRONES)]
+            ############################################################
+        elif self.OBS_TYPE == ObservationType.KIN_target:  # 位姿加上目标位置+4维动作  #需要+(num_drones-1)*其他无人机位置
+            ############################################################
+            # 创建 obs_bound,           X    Y   Z   R   P   Y   VX  VY  VZ  WX  WY  WZ  TX, TY, TZ, Tpos
+            obs_lower_bound = np.array([lo, lo, lo,  lo, lo, lo, lo, lo, lo, lo, lo, lo, lo, lo, lo, 0])
+            obs_upper_bound = np.array([hi, hi, hi, hi, hi, hi, hi, hi, hi, hi, hi, hi, hi, hi, hi, hi])
+            # 使用 np.tile 扩展位置和距离边界  POS for others
             position_bounds_lower = np.tile([lo, lo, lo, 0], self.NUM_DRONES - 1)
             position_bounds_upper = np.tile([hi, hi, hi, hi], self.NUM_DRONES - 1)
             # 连接初始边界和扩展的边界
@@ -372,8 +401,6 @@ class CircleRLAviary(CircleBaseAviary):
             obs_upper_bound = np.concatenate((obs_upper_bound, position_bounds_upper))
             #### Add action buffer to observation space ################
             if Obs_act == True:     # 6/12 观测动作为Flase 这样避免了麻烦
-                act_lo = -1
-                act_hi = +1
                 # for i in range(self.ACTION_BUFFER_SIZE):  # 30//2 次   只保存一次的动作
                 if self.ACT_TYPE in [ActionType.RPM, ActionType.VEL]:
                     obs_lower_bound = np.hstack([obs_lower_bound, np.array([act_lo, act_lo, act_lo, act_lo])])
@@ -427,22 +454,35 @@ class CircleRLAviary(CircleBaseAviary):
             #### Add action buffer to observation #######################
             for i in range(self.ACTION_BUFFER_SIZE):
                 ret = np.hstack([ret, np.array([self.action_buffer[i][j, :] for j in range(self.NUM_DRONES)])])
-            return ret
+            return ret, False
         ############################################################
+        elif self.OBS_TYPE == ObservationType.KIN_target_PO:  # 添加目标位置,其他智能体信息相当于通信信息而非观测
+            obs_dict = {}
+            for i in range(self.NUM_DRONES):
+                obs = self._getDroneStateVector(i, True)  # 如果True， obs['target_pos']是无人机指向目标的向量
+                obs_dict[i] = {
+                    'pos': obs['pos'],  # 3     0:3
+                    'rpy': obs['rpy'],  # 3     3:6
+                    'vel': obs['vel'],  # 3     6:9
+                    'ang_vel': obs['ang_vel'],  # 3     9:12
+                    'target_pos': obs['target_pos_dis'],  # 4   12:16
+                    'other_pos': obs['other_pos_dis'],  # 4*(N-1)   # 16:4N+12
+                    'Fs': potential_energy(obs, self.NUM_DRONES),  # 直接计算势能Fs 3维    4N+12:4N+15
+                    'last_action': self.action_buffer[-1][i]  # 添加一个动作 4/3
+                }
+            return obs_dict, True
         elif self.OBS_TYPE == ObservationType.KIN_target:  # 添加目标位置,其他智能体信息相当于通信信息而非观测
             obs_dict = {}
             for i in range(self.NUM_DRONES):
                 obs = self._getDroneStateVector(i, True)  # 如果True， obs['target_pos']是无人机指向目标的向量
-                if self.NUM_DRONES != 1:    # 有多架无人机时 有队友位置
+                if self.NUM_DRONES != 1:  # 有多架无人机时 有队友位置
                     obs_dict[i] = {
-                        'pos': obs['pos'],      # 3
-                        'rpy': obs['rpy'],      # 3
-                        'vel': obs['vel'],      # 3
-                        'ang_vel': obs['ang_vel'],              # 3
-                        'target_pos': obs['target_pos_dis'],    # 4
-                        # 'target_dis': obs['target_dis'],      # 1
-                        'other_pos': obs['other_pos_dis'],      # 4*(N-1)
-                        # 'other_dis': obs['other_dis'],        # N-1
+                        'pos': obs['pos'],  # 3
+                        'rpy': obs['rpy'],  # 3
+                        'vel': obs['vel'],  # 3
+                        'ang_vel': obs['ang_vel'],  # 3
+                        'target_pos': obs['target_pos_dis'],  # 4
+                        'other_pos': obs['other_pos_dis'],  # 4*(N-1)
                         'last_action': self.action_buffer[-1][i]  # 添加一个动作 4/3
                     }
                 else:
@@ -453,9 +493,68 @@ class CircleRLAviary(CircleBaseAviary):
                         'ang_vel': obs['ang_vel'],
                         'target_pos': obs['target_pos'],
                         'target_dis': obs['target_dis'],
-                        'action_buffer': obs['last_clipped_action']  # # 添加一个动作 4/3
+                        'action_buffer': obs['last_clipped_action']  # 添加一个动作 4/3
                     }
-            return obs_dict
+            return obs_dict, False
             ############################################################
         else:
             print("[ERROR] in LyyRLAviary._computeObs()")
+
+
+def potential_energy(obs_dict, num_agents, eta_att=1, eta_rep_agent=0.1, d0=1.0):
+    """
+    计算势能F，用于帮助critic收敛
+
+    Parameters
+    ----------
+    obs_dict : dict
+        每个无人机的观测字典，包含pos, rpy, vel, ang_vel, target_pos, other_pos, last_action
+    num_agents : int
+        总的无人机数量
+    eta_att : float
+        引力增益系数
+    eta_rep_agent : float
+        斥力增益系数
+    d0 : float
+        斥力感应范围
+    n : int
+        调节因子
+
+    Returns
+    -------
+    F : np.array
+        计算得到的势能向量 [fx, fy, fz]
+    """
+    # 计算引力F_att
+    delta_lm = obs_dict['target_pos_dis'][:3]       # [3] 提取目标的相对位置
+    dist_lm = obs_dict['target_pos_dis'][3]         # 提取目标的距离
+    if dist_lm > 0:
+        unit_lm = delta_lm / dist_lm            # 引力单位方向
+        F_att_abs = eta_att / (dist_lm ** 2)    # 根据需求调整
+        F_att = unit_lm * F_att_abs
+    else:
+        F_att = np.zeros(3)
+
+    # 计算斥力F_rep_agent
+    F_rep_agent = np.zeros(3)
+    other_pos = obs_dict['other_pos_dis'].reshape((num_agents - 1, 4))
+    for i in range(num_agents-1):
+        delta_ag = other_pos[i][:3]     # [3] 提取其他无人机的相对位置
+        dist_ag = other_pos[i][3]       # 提取其他无人机的距离
+        if 0 < dist_ag < d0:                        # 感应斥力的范围默认是(0,1)
+            unit_ag = delta_ag / dist_ag            # 斥力单位方向
+            # 斥力1
+            F_rep_ob1_abs = eta_rep_agent * (1/dist_ag - 1/d0) / (dist_ag ** 2)
+            F_rep_ob1 = unit_ag * F_rep_ob1_abs
+            # 斥力2（假设没有landmark，可以省略）
+            # 如果有其他斥力来源，可以在这里添加
+            F_rep_agent += F_rep_ob1
+    # 总势能F
+    F = F_att - F_rep_agent
+    # 可选：将F缩放到某个范围内
+    norm_F = np.linalg.norm(F)
+    if norm_F > 0:
+        F = F / norm_F  # 归一化
+    else:
+        F = np.zeros(3)
+    return F

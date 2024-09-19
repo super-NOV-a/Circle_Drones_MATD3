@@ -90,9 +90,7 @@ class CircleCameraAviary(CircleRLCameraAviary):
         Returns
         -------
         list of float
-            每个无人机的奖励值。
-
-        """
+            每个无人机的奖励值。        """
         if self.OBS_TYPE == ObservationType.RGB:
             states = {i: self._getDroneStateVector(i, self.need_target) for i in range(self.NUM_DRONES)}
             rgbs = {i: self._getDroneImages(i, False)[0] for i in range(self.NUM_DRONES)}
@@ -107,29 +105,65 @@ class CircleCameraAviary(CircleRLCameraAviary):
             print('[ERROR] in CircleSpread_Camera._computeReward(), Obs type is not RGB ')
             return -1
 
-    def compute_rgb_rewards(self, states, rgbs, dis_to_target, num_drones, previous_dis_to_target):
+    def compute_rgb_rewards(self, states, rgbs, dis_to_target, num_drones, previous_dis_to_target, stage):
         rewards = np.zeros(num_drones)
         for i in range(num_drones):
             get_target, rgb_reward = self.rgb_reward(rgbs[i])
-            rewards[i] += rgb_reward
-            if get_target:
-                rewards[i] -= self.yaw_rate_reward(states[i]['ang_vel'][2])  # 观测到惩罚旋转
-                rewards[i] += self.improvement_reward(dis_to_target[i], previous_dis_to_target[i])
-            else:
-                rewards[i] += self.yaw_rate_reward(states[i]['ang_vel'][2])  # 没观测到鼓励旋转
-        return rewards
+
+            if stage == 1:  # 阶段1：仅旋转，奖励依据无人机是否平稳，是否观测到目标
+                rewards[i] += rgb_reward
+                if get_target:  # 目标被观测到，进入阶段2
+                    stage = 2
+                else:
+                    rewards[i] -= self.yaw_rate_reward(states[i]['ang_vel'][2])
+
+            if stage == 2:    # 阶段2：根据目标距离给予奖励
+                if get_target:
+                    rewards[i] -= 5 * self.yaw_rate_reward(states[i]['ang_vel'][2])  # 惩罚过度旋转
+                    rewards[i] += self.vel_reward(states[i]['vel'][:2], states[i]['target_pos_dis'][:2])
+                    rewards[i] += self.improvement_reward(dis_to_target[i], previous_dis_to_target[i])
+                else:
+                    # 目标丢失，回到阶段1
+                    stage = 1
+
+        return rewards, stage
+
+    def vel_reward(self, vel, target_pos):
+        # 计算余弦相似度
+        cos_sim = np.dot(vel, target_pos) / (np.linalg.norm(vel) * np.linalg.norm(target_pos))
+        if cos_sim > 0:
+            reward = cos_sim * 3  # 同向时的奖励，可以调整系数10以改变奖励大小
+        else:
+            reward = cos_sim  # 反向时的惩罚
+        return reward
 
     def yaw_rate_reward(self, yaw_rate):
         if np.abs(yaw_rate) > .1:
-            return 2
+            return 1
         else:
             return 0
 
     def rgb_reward(self, rgb):
-        _, _, yellow_pixel, red_pixel = self.detect_yellow_red_regions(rgb)
+        yellow_mask, red_mask, yellow_pixel, red_pixel = self.detect_yellow_red_regions(rgb)
         if yellow_pixel > 2:
-            return True, yellow_pixel * 2 + red_pixel
+            center_weight = self.calculate_center_weight(yellow_mask)
+            yellow_reward = max(center_weight * yellow_pixel * 2, 10)
+            return True,  yellow_reward     # + 0.5 * red_pixel
         return False, 0
+
+    def calculate_center_weight(self, yellow_mask):
+        img_height, img_width = yellow_mask.shape
+        center_y, center_x = img_height // 2, img_width // 2
+        y_indices, x_indices = np.nonzero(yellow_mask)
+        if len(y_indices) == 0:
+            return 0  # 没有黄色像素，返回0
+        # 计算黄色像素与图像中心的距离
+        distances = np.sqrt((y_indices - center_y) ** 2 + (x_indices - center_x) ** 2)
+        max_distance = np.sqrt(center_y ** 2 + center_x ** 2)
+        # 计算权重：距离越近，权重越高
+        normalized_distances = 1 - (distances / max_distance)
+        center_weight = np.mean(normalized_distances)
+        return center_weight
 
     def detect_yellow_red_regions(self, image):
         yellow_min = np.array([180, 180, 0], dtype=np.uint8)
@@ -153,7 +187,7 @@ class CircleCameraAviary(CircleRLCameraAviary):
 
     def improvement_reward(self, dis_to_target, previous_dis_to_target):
         if dis_to_target < previous_dis_to_target:
-            return 10  # 你可以调整奖励的数值
+            return 2  # 你可以调整奖励的数值
         return 0
 
     ################################################################################

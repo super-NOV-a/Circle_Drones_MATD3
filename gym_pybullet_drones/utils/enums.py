@@ -49,3 +49,4 @@ class ObservationType(Enum):
     KIN = "kin"     # Kinematic information (pose, linear and angular velocities)
     RGB = "rgb"     # RGB camera capture in each drone's POV
     KIN_target = 'kin_target'   # 位姿信息，加上目标位置
+    KIN_target_PO = 'kin_target_po'

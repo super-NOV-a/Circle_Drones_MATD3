@@ -189,89 +189,101 @@ class CircleRLCameraAviary(CircleBaseCameraAviary):
         return action_space
 
     ################################################################################
-    def _preprocessAction(self, action):
-        """Pre-processes the action passed to `.step()` into motors' RPMs.
-
-        Parameters
-        ----------
-        action : ndarray
-            The input action for each drone, to be translated into RPMs.
-
-        Returns
-        -------
-        ndarray
-            (NUM_DRONES, 4)-shaped array of ints containing to clipped RPMs
-            commanded to the 4 motors of each drone.
-
-        """
+    def _preprocessAction(self, action, detected_num):
+        """Pre-processes the action passed to `.step()` into motors' 4 RPMs. Returns (NUM_DRONES, 4) """
         safe_penalty = np.zeros(self.NUM_DRONES)  # 如果有不安全的动作则保证动作安全且减小奖励
         self.action_buffer.append(action)
-
-        action_tensor = torch.tensor(action, dtype=torch.float32)
-        action_probs = action_tensor / action_tensor.sum(dim=-1, keepdim=True)
-        dist = Categorical(probs=action_probs)
-        sampled_actions = dist.sample().numpy()
-
         rpm = np.zeros((self.NUM_DRONES, 4))  # 最终计算结果为rpm
-        if self.discrete:
-            for k in range(self.NUM_DRONES):  # 第 k 架drones
-                action_id = sampled_actions[k]  # 使用采样的离散动作
-                state = self._getDroneStateVector(k, self.need_target)  # 获取无人机的状态
-                keep_pos = state['pos']
-                keep_pos[2] = self.init_z
-                v_unit_vector, yaw_change = self.map_action_to_movement(action_id, state['rpy'][2])     # 使用映射函数获取速度方向和偏航改变
-                safe_penalty[k], v_unit_vector = self.enforce_altitude_limits(state['pos'], v_unit_vector)  # 安全动作
-                temp, _, _ = self.ctrl[k].computeControl(
+        action_tensor = torch.tensor(action, dtype=torch.float32)  # (num_drones, 8)
+
+        for k in range(self.NUM_DRONES):  # 对每架无人机进行处理
+            if detected_num[k] >= 2:  # 黄色像素大于2，移动动作为主
+                action_tensor[k, 4:8] = 0  # 仅保留移动动作的概率，将旋转动作的概率设为0
+
+            action_probs = action_tensor[k] / action_tensor[k].sum(dim=-1, keepdim=True)  # 重新归一化动作概率
+            action_id = Categorical(probs=action_probs).sample().item()  # 根据调整后的概率分布采样动作
+
+            state = self._getDroneStateVector(k, self.need_target)  # 获取无人机状态并计算目标位置和偏航变化
+            keep_pos = state['pos']
+            keep_pos[2] = self.init_z  # 现在位置保持高度
+            target_pos, yaw_change, safe_penalty[k] = self.map_action_to_target_position(
+                action_id, state['pos'], state['rpy'][2]
+            )
+            if yaw_change != 0:
+                # 计算目标RPM值
+                rpm[k, :], _, _ = self.ctrl[k].computeControl(
                     control_timestep=self.CTRL_TIMESTEP,
                     cur_pos=state['pos'],
                     cur_quat=state['quat'],
                     cur_vel=state['vel'],
                     cur_ang_vel=state['ang_vel'],
-                    target_pos=keep_pos,  # same as the current position
-                    target_rpy=np.array([0, 0, state['rpy'][2] + yaw_change]),  # add target yaw
-                    target_vel=0.4*state['vel'] + 0.6*self.SPEED_LIMIT * v_unit_vector  # 设置速度
+                    target_pos=keep_pos,  # 使用位置移动时：target_pos,速度时：keep_pos  # 与当前位置相同
+                    target_rpy=np.array([0, 0, state['rpy'][2] + 0.2 * yaw_change]),  # 添加目标偏航
                 )
-                rpm[k, :] = temp
-        else:
-            for k in range(self.NUM_DRONES):  # 第 k 架drones
-                target = action[k]  # 动作直接作为各个方法的目标
-                if self.ACT_TYPE == ActionType.V_YAW:  # [0:4]维速度，第4维偏航角
-                    state = self._getDroneStateVector(k, self.need_target)  # get image
-                    if np.linalg.norm(target[:3]) != 0:
-                        v_unit_vector = target[:3] / np.linalg.norm(target[:3])
-                    else:
-                        v_unit_vector = np.zeros(3)
-
-                    # 检查当前z位置，调整z方向速度
-                    if state['pos'][2] < 0.1 and v_unit_vector[2] < 0:
-                        v_unit_vector[2] = 0
-                        safe_penalty[k] += 20
-
-                    temp, _, _ = self.ctrl[k].computeControl(
-                        control_timestep=self.CTRL_TIMESTEP,
-                        cur_pos=state['pos'],
-                        cur_quat=state['quat'],
-                        cur_vel=state['vel'],
-                        cur_ang_vel=state['ang_vel'],
-                        target_pos=state['pos'],  # same as the current position
-                        target_rpy=np.array([0, 0, state['rpy'][2] + target[4]*0.1]),  # add target yaw
-                        target_vel=self.SPEED_LIMIT * np.abs(target[3]) * 0.8 * v_unit_vector  # 额外乘0.4保证飞行稳定
-                    )
-                    rpm[k, :] = temp
-                else:
-                    print("[ERROR] _preprocessAction()")
-                    exit()
+            else:
+                rpm[k, :], _, _ = self.ctrl[k].computeControl(
+                    control_timestep=self.CTRL_TIMESTEP,
+                    cur_pos=state['pos'],
+                    cur_quat=state['quat'],
+                    cur_vel=state['vel'],
+                    cur_ang_vel=state['ang_vel'],
+                    target_pos=target_pos,  # 使用位置移动时：target_pos,速度时：keep_pos  # 与当前位置相同
+                    target_rpy=np.array([0, 0, state['rpy'][2]]),  # 添加目标偏航
+                )
+        # print(rpm)
         return rpm, safe_penalty
+
+    def enforce_position_limits(self, target_pos, current_pos):
+        safe_penalty = 0
+        # 限制x轴位置
+        if target_pos[0] < -2:
+            target_pos[0] = max(current_pos[0] - 0.5, -2)
+            safe_penalty += 20
+        elif target_pos[0] > 2:
+            target_pos[0] = min(current_pos[0] + 0.5, 2)
+            safe_penalty += 20
+        # 限制y轴位置
+        if target_pos[1] < -2:
+            target_pos[1] = max(current_pos[1] - 0.5, -2)
+            safe_penalty += 20
+        elif target_pos[1] > 2:
+            target_pos[1] = min(current_pos[1] + 0.5, 2)
+            safe_penalty += 20
+        return safe_penalty, target_pos
+
+    def map_action_to_target_position(self, action_id, current_pos, current_yaw):
+        cos_yaw, sin_yaw = np.cos(current_yaw), np.sin(current_yaw)
+        rotation_matrix = np.array([
+            [cos_yaw, -sin_yaw, 0],
+            [sin_yaw, cos_yaw, 0],
+            [0, 0, 1]
+        ])
+        action_map = {
+            0: (np.array([0.8, 0, 0]), 0),  # 全速前进
+            1: (np.array([0.3, 0, 0]), 0),  # 缓速前进
+            2: (np.array([-0.3, 0, 0]), 0),  # 后退
+            3: (np.array([0, 0, 0]), 0),  # 保持位置
+            4: (np.array([0, 0, 0]), -0.8),  # 全速左转
+            5: (np.array([0, 0, 0]), -0.2),  # 缓速左转
+            6: (np.array([0, 0, 0]), 0.8),  # 全速右转
+            7: (np.array([0, 0, 0]), 0.2)  # 缓速右转
+        }
+        v_unit_vector, yaw_change = action_map.get(action_id, (np.array([0, 0, 0]), 0))
+        v_unit_vector = rotation_matrix @ v_unit_vector
+        target_pos = current_pos + v_unit_vector * self.CTRL_TIMESTEP * self.SPEED_LIMIT
+        # 强制目标位置在安全范围内
+        safe_penalty, target_pos = self.enforce_position_limits(target_pos, current_pos)
+        return target_pos, yaw_change, safe_penalty
 
     def enforce_altitude_limits(self, pos, v_unit_vector):
         safe_penalty = 0
-        if pos[0] < -2 and v_unit_vector[0] < 0:       # 限制x轴位置
+        if pos[0] < -2 and v_unit_vector[0] < 0:  # 限制x轴位置
             v_unit_vector[0] = 0.5
             safe_penalty += 20
         elif pos[0] > 2 and v_unit_vector[0] > 0:
             v_unit_vector[0] = -0.5
             safe_penalty += 20
-        if pos[1] < -2 and v_unit_vector[1] < 0:        # 限制y轴位置
+        if pos[1] < -2 and v_unit_vector[1] < 0:  # 限制y轴位置
             v_unit_vector[1] = 0.5
             safe_penalty += 20
         elif pos[1] > 2 and v_unit_vector[1] > 0:
@@ -286,9 +298,9 @@ class CircleRLCameraAviary(CircleBaseCameraAviary):
             [sin_yaw, cos_yaw, 0],
             [0, 0, 1]])
         action_map = {
-            0: (np.array([1.5, 0, 0]), 0),    # 全速前进
-            1: (np.array([1, 0, 0]), 0),  # 缓速前进
-            2: (np.array([-1, 0, 0]), 0),  # 后退
+            0: (np.array([1, 0, 0]), 0),    # 全速前进
+            1: (np.array([0.5, 0, 0]), 0),  # 缓速前进
+            2: (np.array([-0.5, 0, 0]), 0),  # 后退
             3: (np.array([0, 0, 0]), 0),    # 保持位置
             4: (np.array([0, 0, 0]), -0.2),  # 全速左转
             5: (np.array([0, 0, 0]), -0.1),  # 缓速左转

@@ -32,8 +32,8 @@ def generate_non_overlapping_positions_numpy(scale=1.0):
     cell_coordinates = np.array(
         [(x, y) for x in range(divisions) for y in range(divisions)])
     np.random.shuffle(cell_coordinates)
-    positions = []      # 生成位置列表
-    for cell_coord in cell_coordinates:     # 在每个单元格内随机生成一个位置
+    positions = []  # 生成位置列表
+    for cell_coord in cell_coordinates:  # 在每个单元格内随机生成一个位置
         x = np.random.uniform(cell_coord[0] * cell_size - scale, (cell_coord[0] + 1) * cell_size - scale)
         y = np.random.uniform(cell_coord[1] * cell_size - scale, (cell_coord[1] + 1) * cell_size - scale)
         z = np.random.uniform(0.2, 1.2)  # 保持z范围不变
@@ -266,28 +266,25 @@ class CircleBaseAviary(gym.Env):
         :return: 若需要目标，则返回 无人机+目标 初始位置 init_pos[:3], init_pos[3]/target
         """
         if self.need_target:
-            init_pos = np.stack(random.sample(self.cell_pos, self.NUM_DRONES+1))
-            # 指定target为一个随机范围
-            target = np.array([np.random.uniform(-1, 1), np.random.uniform(-1, 1),
-                               np.random.uniform(0.5, 1)])
-            return init_pos[:3], target
+            init_pos = np.stack(random.sample(self.cell_pos, 2 * self.NUM_DRONES))
+            return init_pos[:self.NUM_DRONES], init_pos[self.NUM_DRONES:2 * self.NUM_DRONES]
         else:
             init_pos = np.stack(random.sample(self.cell_pos, self.NUM_DRONES))
             # init_pos = np.array([[1, 1, 1], [-1, -1, 0], [1, -1, 1]])
             return init_pos
 
     def show_target(self):
-        self.target_id = p.loadURDF("E:\PyProjects\MARL-code-pytorch\gym_pybullet_drones\\assets\cf2p.urdf",
-                                    self.TARGET_POS,
-                                    p.getQuaternionFromEuler([0, 0, 0]), physicsClientId=self.CLIENT,
-                                    useFixedBase=True)
-        # 设置模型无重力
-        p.changeDynamics(self.target_id, -1, mass=0)  # 将质量设为零，即设置无重力
-        p.changeDynamics(self.target_id, -1, linearDamping=0, angularDamping=0)  # 设置运动类型为静态
-        # 设置模型不受其他碰撞影响
-        p.setCollisionFilterGroupMask(self.target_id, -1, 0, 0)  # 设置碰撞组掩码
-        p.setCollisionFilterPair(-1, -1, self.target_id, -1, 0)  # 设置碰撞对，使模型不与其他对象发生碰撞
-
+        for i in range(self.NUM_DRONES):
+            self.target_id = p.loadURDF("E:\\PyProjects\\MARL-code-pytorch\\gym_pybullet_drones\\assets\\box.urdf",
+                                        self.TARGET_POS[i],
+                                        p.getQuaternionFromEuler([0, 0, 0]), physicsClientId=self.CLIENT,
+                                        useFixedBase=True)
+            # 设置模型无重力
+            p.changeDynamics(self.target_id, -1, mass=0)  # 将质量设为零，即设置无重力
+            p.changeDynamics(self.target_id, -1, linearDamping=0, angularDamping=0)  # 设置运动类型为静态
+            # 设置模型不受其他碰撞影响
+            p.setCollisionFilterGroupMask(self.target_id, -1, 0, 0)  # 设置碰撞组掩码
+            p.setCollisionFilterPair(-1, -1, self.target_id, -1, 0)  # 设置碰撞对，使模型不与其他对象发生碰撞
 
     def update_target_pos(self):
         """
@@ -313,53 +310,43 @@ class CircleBaseAviary(gym.Env):
         # 可能不该使用，真实无人机无法reset
         pass
 
-    def convert_obs_dict_to_array(self, obs_dict):
+    def convert_obs_dict_to_array(self, obs_dict, if_PO):
         obs_array = []
         if self.NUM_DRONES != 1:
             for i in range(self.NUM_DRONES):
                 obs = obs_dict[i]
-                # action_buffer_flat = np.hstack(obs['action_buffer'])    # 拉成一维
-                obs_array.append(np.hstack([
-                    obs['pos'],
-                    obs['rpy'],
-                    obs['vel'],
-                    obs['ang_vel'],
-                    obs['target_pos'],
-                    obs['other_pos'],
-                    obs['last_action']
-                ]))
+                if if_PO:  # 包含PO,添加Fs
+                    obs_array.append(np.hstack([obs['pos'], obs['rpy'], obs['vel'], obs['ang_vel'],
+                                                obs['target_pos'], obs['other_pos'], obs['Fs'], obs['last_action']
+                                                ]))
+                if not if_PO:  # 不包含PO
+                    obs_array.append(np.hstack([obs['pos'], obs['rpy'], obs['vel'], obs['ang_vel'],
+                                                obs['target_pos'], obs['other_pos'], obs['last_action']
+                                                ]))
         else:
             pass
         return np.array(obs_array).astype('float32')
 
-    def to_array_obs(self, obs_dict):
+    def to_array_obs(self, obs_dict, if_PO=False):
+        """
+        环境返回值 新增势能
+        :param obs_dict: 为原本观测值dict
+        :param if_PO: 是否为包含 PO的观测
+        :return: 观测obs_array
+        """
         if isinstance(obs_dict, dict):
-            obs_array = self.convert_obs_dict_to_array(obs_dict)
+            obs_array = self.convert_obs_dict_to_array(obs_dict, if_PO)
         else:
             obs_array = obs_dict
-        return obs_array
+        return obs_array  # 1是势能Fs
 
     def reset(self,
               seed: int = None,
               options: dict = None):
         """Resets the environment.
+        重置环境，重新生成位置和目标位置
 
-        Parameters
-        ----------
-        seed : int, optional
-            Random seed.
-        options : dict[..], optional
-            Additinonal options, unused
-
-        Returns
-        -------
-        ndarray | dict[..]
-            The initial observation, check the specific implementation of `_computeObs()`
-            in each subclass for its format.
-        dict[..]
-            Additional information as a dictionary, check the specific implementation of `_computeInfo()`
-            in each subclass for its format.
-
+        返回值：initial_obs, Fs # initial_info
         """
 
         # TODO : initialize random number generator with seed
@@ -375,7 +362,8 @@ class CircleBaseAviary(gym.Env):
         #### Start video recording #################################
         self._startVideoRecording()
         #### Return the initial observation ########################
-        initial_obs = self.to_array_obs(self._computeObs())
+        obs, if_po = self._computeObs()     # 返回值中有是否添加势能的bool值
+        initial_obs = self.to_array_obs(obs, if_po)
         initial_info = self._computeInfo()
         # self.see_ball()
         return initial_obs, initial_info
@@ -383,32 +371,28 @@ class CircleBaseAviary(gym.Env):
     ################################################################################
 
     def step(self, action):
-        """Advances the environment by one simulation step.
+        """
+        推进环境一个模拟步。
 
-        Parameters
+        参数
         ----------
         action : ndarray | dict[..]
-            The input action for one or more drones, translated into RPMs by
-            the specific implementation of `_preprocessAction()` in each subclass.
+            一个或多个无人机的输入动作，通过每个子类中特定实现的 `_preprocessAction()` 转换为RPM。
 
-        Returns
+        返回
         -------
         ndarray | dict[..]
-            The step's observation, check the specific implementation of `_computeObs()`
-            in each subclass for its format.
+            本步的观测结果，查看每个子类中特定实现的 `_computeObs()` 以获取其格式。
+        ndarray | dict[..]
+            返回势能 Fs。
         float | dict[..]
-            The step's reward value(s), check the specific implementation of `_computeReward()`
-            in each subclass for its format.
+            本步的奖励值，查看每个子类中特定实现的 `_computeReward()` 以获取其格式。
         bool | dict[..]
-            Whether the current episode is over, check the specific implementation of `_computeTerminated()`
-            in each subclass for its format.
+            当前回合是否结束，查看每个子类中特定实现的 `_computeTerminated()` 以获取其格式。
         bool | dict[..]
-            Whether the current episode is truncated, check the specific implementation of `_computeTruncated()`
-            in each subclass for its format.
-        dict[..]
-            Additional information as a dictionary, check the specific implementation of `_computeInfo()`
-            in each subclass for its format.
-
+            当前回合是否被截断，查看每个子类中特定实现的 `_computeTruncated()` 以获取其格式。   --没用到
+        dict[..]   --Fs占位取代此位置了
+            其他信息作为字典返回，查看每个子类中特定实现的 `_computeInfo()` 以获取其格式。   --没用到
         """
         if self.RECORD and not self.GUI and self.step_counter % self.CAPTURE_FREQ == 0:
             [w, h, rgb, dep, seg] = p.getCameraImage(width=self.VID_WIDTH,
@@ -469,7 +453,8 @@ class CircleBaseAviary(gym.Env):
         self._updateAndStoreKinematicInformation()
         if self.need_target:
             self.update_target_pos()
-        obs = self.to_array_obs(self._computeObs())
+        _obs, if_po = self._computeObs()    # 是否
+        obs = self.to_array_obs(_obs, if_po)
         rewards = self._computeReward()
         terminated, punish = self._computeTerminated()
         truncated = self._computeTruncated()
@@ -478,6 +463,7 @@ class CircleBaseAviary(gym.Env):
         adjusted_rewards = [reward - 1 * p for reward, p in zip(rewards, punish)]
 
         return obs, adjusted_rewards, terminated, truncated, info
+
     ################################################################################
 
     def apply_physics(self, clipped_action, i):
@@ -600,7 +586,7 @@ class CircleBaseAviary(gym.Env):
         #### Set PyBullet's parameters #############################
         p.setGravity(0, 0, -self.G, physicsClientId=self.CLIENT)
         p.setRealTimeSimulation(0, physicsClientId=self.CLIENT)
-        p.setTimeStep(self.PYB_TIMESTEP, physicsClientId=self.CLIENT)   # 用于设置调用stepSimulation时的步长
+        p.setTimeStep(self.PYB_TIMESTEP, physicsClientId=self.CLIENT)  # 用于设置调用stepSimulation时的步长
         p.setAdditionalSearchPath(pybullet_data.getDataPath(), physicsClientId=self.CLIENT)  # 用于增加导入模型的路径
         #### Load ground plane, drone and obstacles models #########
         self.INIT_XYZS, self.TARGET_POS = self.get_init()  # 重新给出位置
@@ -624,7 +610,8 @@ class CircleBaseAviary(gym.Env):
         #### Disable collisions between drones' and the ground plane
         #### E.g., to start a drone at [0,0,0] #####################
         for i in range(self.NUM_DRONES):
-            p.setCollisionFilterPair(bodyUniqueIdA=self.PLANE_ID, bodyUniqueIdB=self.DRONE_IDS[i], linkIndexA=-1, linkIndexB=-1, enableCollision=0, physicsClientId=self.CLIENT)
+            p.setCollisionFilterPair(bodyUniqueIdA=self.PLANE_ID, bodyUniqueIdB=self.DRONE_IDS[i], linkIndexA=-1,
+                                     linkIndexB=-1, enableCollision=0, physicsClientId=self.CLIENT)
         if self.OBSTACLES:
             self._addObstacles()
 
@@ -679,8 +666,8 @@ class CircleBaseAviary(gym.Env):
                 'rpy': self.rpy[nth_drone, :],  # 3
                 'vel': self.vel[nth_drone, :],  # 3
                 'ang_vel': self.ang_v[nth_drone, :],  # 3
-                'target_pos_dis': np.append(self.TARGET_POS[:] - self.pos[nth_drone, :],
-                                            np.linalg.norm(self.TARGET_POS[:] - self.pos[nth_drone, :]))  # 4
+                'target_pos_dis': np.append(self.TARGET_POS[nth_drone, :] - self.pos[nth_drone, :],
+                                            np.linalg.norm(self.TARGET_POS[nth_drone, :] - self.pos[nth_drone, :]))  # 4
             }
             other_pos_dis = []  # 存储智能体指向其他智能体的向量和距离 4*(N-1)
             for i in range(self.NUM_DRONES):

@@ -3,7 +3,7 @@ import numpy as np
 from torch.utils.tensorboard import SummaryWriter
 import argparse
 from utils.replay_buffer import ReplayBuffer
-from utils.matd3 import MATD3
+from utils.qmix import QMIX
 import copy
 from gym_pybullet_drones.new_envs.CircleSpread_Camera import CircleCameraAviary
 from gym_pybullet_drones.utils.enums import ObservationType, ActionType
@@ -15,7 +15,7 @@ action = 'vel_yaw'
 class Runner:
     def __init__(self, args):
         self.args = args
-        self.args.decive = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.args.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.args.discrete = True
         self.env_name = Env_name
         self.number = args.N_drones
@@ -24,6 +24,7 @@ class Runner:
         self.load_mark = None
         self.args.share_prob = 0.05  # 还是别共享了，有些无用
         self.args.obs_type = 'rgb'  # kin_target, rgb
+
         # Create env
         if self.env_name == 'circle':
             Ctrl_Freq = args.Ctrl_Freq  # 30
@@ -32,21 +33,21 @@ class Runner:
                                           need_target=True, obs_with_act=True, discrete=self.args.discrete)
             self.timestep = 1 / Ctrl_Freq  # 计算每个步骤的时间间隔 0.003
 
-            # self.env.observation_space.shape = box[N,78]
             if self.args.discrete:
                 self.args.obs_rgb_dim_n, self.args.obs_other_dim_n = self.env.observation_space
             else:
-                if ObservationType(self.args.obs_type) == ObservationType.RGB:  # obs_space:Box(0, 255, (3,48,64,4))
+                if ObservationType(self.args.obs_type) == ObservationType.RGB:
                     self.args.obs_rgb_dim_n, self.args.obs_other_dim_n = self.env.observation_space
                 elif ObservationType(self.args.obs_type) == ObservationType.KIN_target:
                     self.args.obs_dim_n = [self.env.observation_space[i].shape[0] for i in range(self.env.NUM_DRONES)]
                 else:
                     raise ValueError("Unsupported observation type")
+
             if self.args.discrete:
                 self.args.action_dim_n = self.env.action_space
             else:
                 self.args.action_dim_n = [self.env.action_space[i].shape[0] for i in
-                                          range(self.args.N_drones)]  # actions dimensions of N agents
+                                          range(self.args.N_drones)]
 
             if ObservationType(self.args.obs_type) == ObservationType.RGB:
                 print(f"obs_rgb_dim_n={self.args.obs_rgb_dim_n}, obs_other_dim_n={self.args.obs_other_dim_n}")
@@ -58,9 +59,9 @@ class Runner:
         np.random.seed(self.seed)
         torch.manual_seed(self.seed)
 
-        # Create N agents
-        print("Algorithm: MATD3")
-        self.agent = MATD3(args)
+        # Create QMIX agent
+        print("Algorithm: QMIX")
+        self.agent = QMIX(args)
         self.replay_buffer = ReplayBuffer(self.args)
 
         # Create a tensorboard
@@ -72,20 +73,13 @@ class Runner:
         self.noise_std = self.args.noise_std_init  # Initialize noise_std
 
         if self.load_mark is not None:
-            for agent_id in range(self.args.N_drones):
-                # 加载模型参数    todo 修改
-                model_path = "./model/{}/{}_actor_mark_{}_number_{}_step_{}k_agent_{}.pth".format(self.env_name,
-                                                                                                  self.args.algorithm,
-                                                                                                  self.load_mark,
-                                                                                                  self.number,
-                                                                                                  int(10000),
-                                                                                                  agent_id)  # agent_id
-                self.agent.actor.load_state_dict(torch.load(model_path))
+            model_path = f"./model/{self.env_name}/{self.args.algorithm}_mark_{self.load_mark}_number_{self.number}_step_{10000}k.pth"
+            self.agent.load_model(model_path)
 
-    def run(self, ):
+    def run(self):
         while self.total_steps < self.args.max_train_steps:
             rgb_n, obs_n, _ = self.env.reset()  # gym new api
-            pixels, self.env.detected_num = self.agent.preprocess_rgb(rgb_n)   # 预处理放智能体上了
+            pixels, self.env.detected_num = self.agent.preprocess_rgb(rgb_n)  # 预处理放智能体上了
             train_reward = 0
             rewards_n = [0] * self.args.N_drones
 
@@ -116,7 +110,6 @@ class Runner:
 
             rewards_str = ", ".join([f"{reward:.1f}" for reward in rewards_n])
             print(f"total_steps:{self.total_steps} \t all_rewards:[{rewards_str}] \t noise_std:{self.noise_std}")
-            # print(f"total_steps:{self.total_steps} \t all_rewards:{int(rewards_n)} \t noise_std:{self.noise_std}")
             for agent_id, reward in enumerate(rewards_n):
                 self.writer.add_scalar(f'Agent_{agent_id}_train_reward', int(reward), global_step=self.total_steps)
 
@@ -124,7 +117,7 @@ class Runner:
                                    global_step=self.total_steps)
         self.env.close()
 
-    def save_model(self):  # todo 修改
+    def save_model(self):
         self.agent.save_model(self.env_name, self.args.algorithm, self.mark, self.number, self.total_steps)
 
 
@@ -148,8 +141,8 @@ if __name__ == '__main__':
     parser.add_argument("--noise_decay_steps", type=float, default=3e5,
                         help="How many steps before the noise_std decays to the minimum")
     parser.add_argument("--use_noise_decay", type=bool, default=True, help="Whether to decay the noise_std")
-    parser.add_argument("--lr_a", type=float, default=5e-4, help="Learning rate of actor")
-    parser.add_argument("--lr_c", type=float, default=5e-4, help="Learning rate of critic")
+    parser.add_argument("--lr_q", type=float, default=5e-4, help="Learning rate of Q_net")
+    parser.add_argument("--lr_mixer", type=float, default=5e-4, help="Learning rate of mixer")
     parser.add_argument("--gamma", type=float, default=0.99, help="Discount factor")
     parser.add_argument("--tau", type=float, default=0.01, help="Softly update the target network")
     parser.add_argument("--use_orthogonal_init", type=bool, default=True, help="Orthogonal initialization")

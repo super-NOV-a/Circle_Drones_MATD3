@@ -4,6 +4,7 @@ import torch.nn.functional as F
 import copy
 from .networks import Actor, Critic
 
+
 class MATD3(object):
     def __init__(self, args):
         self.max_action = args.max_action
@@ -32,39 +33,49 @@ class MATD3(object):
 
         self.actor_pointer = 0  # 训练计数器
 
-    def choose_action(self, pixels, obs_n, noise_std=0):
-        pixels = torch.tensor(pixels, dtype=torch.float).to(self.device)
+    def choose_action(self, masked_pixels, obs_n, noise_std=0):
+        masked_pixels = torch.tensor(masked_pixels, dtype=torch.float).to(self.device)
+        # detected_num = torch.argwhere(masked_pixels == 1).numel()
         obs_n = torch.tensor(obs_n, dtype=torch.float).to(self.device)
         with torch.no_grad():
             if self.discrete:
                 # 离散动作选择
-                action_probs = self.actor(pixels, obs_n)
-                # action_indices = torch.argmax(action_probs, dim=-1)
-                # a_n = action_indices.cpu().numpy()
-                a_n = action_probs.cpu().numpy()
+                action_probs = self.actor(masked_pixels, obs_n)
+                a_n = action_probs.cpu().numpy()  # 返回动作的概率分布
             else:
                 # 连续动作选择
-                a_n = self.actor(pixels, obs_n).data.cpu().numpy()
+                a_n = self.actor(masked_pixels, obs_n).data.cpu().numpy()
                 a_n += np.random.normal(0, noise_std, size=a_n.shape)
                 a_n = a_n.clip(-self.max_action, self.max_action)
         return a_n
 
-    def preprocess_rgb(self, image):
+    def preprocess_rgb(self, N_image):
         """
         处理图像，将RGBA图像转换为目标检测掩码图像。
-        参数: image (ndarray): 形状为 [N, 96, 128, 4] 的 RGBA 图像数据。
-        返回: ndarray: 形状为 [N, 96, 128] 的目标检测掩码图像。
+
+        参数:
+            N_image(ndarray): 形状为 [N, 96, 128, 4] 的 RGBA 图像数据。
+
+        返回:
+            mask_image (ndarray): 形状为 [N, 96, 128] 的目标检测掩码图像。
+            yellow_pixel_counts (ndarray): 形状为 [N] 的每个智能体的黄色像素计数。
         """
-        img_rgb = image[:, :, :, :3]    # 将 RGBA 图像的最后一维分离
+        N = N_image.shape[0]
+        mask_image = np.zeros((N, 96, 128), dtype=np.float32)  # 初始化掩码图像
+        yellow_pixel_counts = np.zeros(N, dtype=np.int32)  # 初始化黄色像素计数数组
         yellow_min = np.array([180, 180, 0], dtype=np.uint8)
         yellow_max = np.array([255, 255, 70], dtype=np.uint8)
         red_min = np.array([180, 0, 0], dtype=np.uint8)
         red_max = np.array([255, 70, 70], dtype=np.uint8)
-        img_rgb = img_rgb.astype(np.float32)        # 转换为浮点数以避免数据类型限制
-        yellow_mask = np.all((img_rgb >= yellow_min) & (img_rgb <= yellow_max), axis=-1)
-        red_mask = np.all((img_rgb >= red_min) & (img_rgb <= red_max), axis=-1)
-        mask_image = np.where(yellow_mask, 1., np.where(red_mask, -1., 0))    # 创建掩码图像，黄色为1，红色为-1，其他为0
-        return mask_image
+        for i in range(N):  # 对每个智能体单独处理
+            img_rgb = N_image[i, :, :, :3].astype(np.float32)  # 将 RGBA 图像的最后一维分离并转换为浮点数
+            yellow_mask = np.all((img_rgb >= yellow_min) & (img_rgb <= yellow_max), axis=-1)
+            red_mask = np.all((img_rgb >= red_min) & (img_rgb <= red_max), axis=-1)
+            mask_image[i] = np.where(yellow_mask, 1., np.where(red_mask, -1., 0))  # 创建掩码图像
+            yellow_pixel_counts[i] = np.sum(yellow_mask)  # 计算每个智能体的黄色像素计数
+            # if yellow_pixel_counts[i] >= 1:
+            #     print('detected')
+        return mask_image, yellow_pixel_counts
 
     def train(self, replay_buffer):
         self.actor_pointer += 1
@@ -126,4 +137,5 @@ class MATD3(object):
                 target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
 
     def save_model(self, env_name, algorithm, mark, number, total_steps):
-        torch.save(self.actor.state_dict(), f"./model/{env_name}/{algorithm}_actor_mark_{mark}_number_{number}_step_{int(total_steps / 1000)}k.pth")
+        torch.save(self.actor.state_dict(),
+                   f"./model/{env_name}/{algorithm}_actor_mark_{mark}_number_{number}_step_{int(total_steps / 1000)}k.pth")

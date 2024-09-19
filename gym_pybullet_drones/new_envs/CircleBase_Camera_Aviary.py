@@ -183,8 +183,7 @@ class CircleBaseCameraAviary(gym.Env):
         if initial_xyzs is None:  # todo 修改初始位置
             # 正负范围：0.8:9个随机cell位置，1.0: 16个，1.3: 25个，1.5: 36个,1.8: 49个,2.0: 64个
             self.cell_pos = generate_non_overlapping_positions_numpy(1)
-            # 若需要，同时给定目标位置
-            self.need_target = need_target
+            self.need_target = need_target  # 若需要，同时给出目标位置
             if self.need_target:
                 self.INIT_XYZS, self.TARGET_POS = self.get_init()
             else:
@@ -211,8 +210,7 @@ class CircleBaseCameraAviary(gym.Env):
         self._updateAndStoreKinematicInformation()
         #### Start video recording #################################
         self._startVideoRecording()
-        ## 为了满足每1s拍照后进行一个动作，在进行一帧动作后的29帧里保持不动
-        # self.delay_action = np.array([[0, 0, 0, 0, 0] for _ in range(self.NUM_DRONES)])
+        self.detected_num = [0 for _ in range(self.NUM_DRONES)]
 
     ################################################################################
     def get_init(self):
@@ -221,7 +219,7 @@ class CircleBaseCameraAviary(gym.Env):
         """
         if self.need_target:
             init_pos = np.stack(random.sample(self.cell_pos, self.NUM_DRONES + 1))
-            return init_pos[:3], init_pos[3]
+            return init_pos[:self.NUM_DRONES], init_pos[self.NUM_DRONES]
         else:
             init_pos = np.stack(random.sample(self.cell_pos, self.NUM_DRONES))
             # init_pos = np.array([[1, 1, 1], [-1, -1, 0], [1, -1, 1]])
@@ -310,70 +308,9 @@ class CircleBaseCameraAviary(gym.Env):
         action : ndarray | dict[..]
             The input action for one or more drones, translated into RPMs by
             the specific implementation of `_preprocessAction()` in each subclass.
-        交互step频率是30Hz包含8个物理仿真step，结束时增加8个step_counter,每秒图像观测一张
-        Returns
-        -------
-        ndarray | dict[..]
-            The step's observation, check the specific implementation of `_computeObs()`
-            in each subclass for its format.
-        float | dict[..]
-            The step's reward value(s), check the specific implementation of `_computeReward()`
-            in each subclass for its format.
-        bool | dict[..]
-            Whether the current episode is over, check the specific implementation of `_computeTerminated()`
-            in each subclass for its format.
-        bool | dict[..]
-            Whether the current episode is truncated, check the specific implementation of `_computeTruncated()`
-            in each subclass for its format.
-        dict[..]
-            Additional information as a dictionary, check the specific implementation of `_computeInfo()`
-            in each subclass for its format.
-
-        """
-        if self.RECORD and not self.GUI and self.step_counter % self.CAPTURE_FREQ == 0:
-            [w, h, rgb, dep, seg] = p.getCameraImage(width=self.VID_WIDTH,
-                                                     height=self.VID_HEIGHT,
-                                                     shadow=1,
-                                                     viewMatrix=self.CAM_VIEW,
-                                                     projectionMatrix=self.CAM_PRO,
-                                                     renderer=p.ER_TINY_RENDERER,
-                                                     flags=p.ER_SEGMENTATION_MASK_OBJECT_AND_LINKINDEX,
-                                                     physicsClientId=self.CLIENT
-                                                     )
-            (Image.fromarray(np.reshape(rgb, (h, w, 4)), 'RGBA')).save(
-                os.path.join(self.IMG_PATH, "frame_" + str(self.FRAME_NUM) + ".png"))
-            self.FRAME_NUM += 1
-            if self.VISION_ATTR:
-                for i in range(self.NUM_DRONES):
-                    self.rgb[i], self.dep[i], self.seg[i] = self._getDroneImages(i)
-                    self._exportImage(img_type=ImageType.RGB,
-                                      img_input=self.rgb[i],
-                                      path=self.ONBOARD_IMG_PATH + "/drone_" + str(i) + "/",
-                                      frame_num=int(self.step_counter / self.IMG_CAPTURE_FREQ)
-                                      )
-        if self.GUI and self.USER_DEBUG:
-            current_input_switch = p.readUserDebugParameter(self.INPUT_SWITCH, physicsClientId=self.CLIENT)
-            if current_input_switch > self.last_input_switch:
-                self.last_input_switch = current_input_switch
-                self.USE_GUI_RPM = not self.USE_GUI_RPM
-        if self.USE_GUI_RPM:
-            for i in range(4):
-                self.gui_input[i] = p.readUserDebugParameter(int(self.SLIDERS[i]), physicsClientId=self.CLIENT)
-            clipped_action = np.tile(self.gui_input, (self.NUM_DRONES, 1))
-            if self.step_counter % (self.PYB_FREQ / 2) == 0:
-                self.GUI_INPUT_TEXT = [p.addUserDebugText("Using GUI RPM",
-                                                          textPosition=[0, 0, 0],
-                                                          textColorRGB=[1, 0, 0],
-                                                          lifeTime=1,
-                                                          textSize=2,
-                                                          parentObjectUniqueId=self.DRONE_IDS[i],
-                                                          parentLinkIndex=-1,
-                                                          replaceItemUniqueId=int(self.GUI_INPUT_TEXT[i]),
-                                                          physicsClientId=self.CLIENT
-                                                          ) for i in range(self.NUM_DRONES)]
-        else:
-            clip_action, safe_penalty = self._preprocessAction(action)
-            clipped_action = np.reshape(clip_action, (self.NUM_DRONES, 4))
+        交互step频率是30Hz包含8个物理仿真step，结束时增加8个step_counter,每秒图像观测一张        """
+        clip_action, safe_penalty = self._preprocessAction(action, self.detected_num)
+        clipped_action = np.reshape(clip_action, (self.NUM_DRONES, 4))
 
         for STEP in range(self.PYB_STEPS_PER_CTRL):     # 8步
             if self.PYB_STEPS_PER_CTRL > 1 and self.PHYSICS in [Physics.DYN, Physics.PYB_GND, Physics.PYB_DRAG,
@@ -1119,9 +1056,7 @@ class CircleBaseCameraAviary(gym.Env):
 
     ################################################################################
 
-    def _preprocessAction(self,
-                          action
-                          ):
+    def _preprocessAction(self, action, detected_num):
         """Pre-processes the action passed to `.step()` into motors' RPMs.
 
         Must be implemented in a subclass.
@@ -1129,9 +1064,7 @@ class CircleBaseCameraAviary(gym.Env):
         Parameters
         ----------
         action : ndarray | dict[..]
-            The input action for one or more drones, to be translated into RPMs.
-
-        """
+            The input action for one or more drones, to be translated into RPMs."""
         raise NotImplementedError
 
     ################################################################################
@@ -1139,9 +1072,7 @@ class CircleBaseCameraAviary(gym.Env):
     def _computeReward(self):
         """Computes the current reward value(s).
 
-        Must be implemented in a subclass.
-
-        """
+        Must be implemented in a subclass.        """
         raise NotImplementedError
 
     ################################################################################

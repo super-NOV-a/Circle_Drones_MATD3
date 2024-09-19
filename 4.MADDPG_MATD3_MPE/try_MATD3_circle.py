@@ -1,3 +1,4 @@
+import os
 import time
 
 import torch
@@ -20,7 +21,7 @@ class Runner:
         self.env_name = Env_name
         self.number = 3  #
         self.seed = 1145  # 保证一个seed，名称使用记号--mark
-        self.mark = 142  # todo 指定mark
+        self.mark = 9001  # todo 指定mark
         Load_Steps = 10000000  # self.args.max_train_steps = 1e6
         Ctrl_Freq = 30  #
         self.test_times = 3
@@ -144,9 +145,9 @@ class Runner:
 
         # 绘制图
         for eval_time in range(self.args.evaluate_times):
-            self.plot_results(all_states[eval_time], all_actions[eval_time], all_rewards[eval_time])
+            self.plot_and_save_results(all_states[eval_time], all_actions[eval_time], all_rewards[eval_time])
 
-    def plot_results(self, states, actions, rewards):
+    def plot_and_save_results(self, states, actions, rewards):
         # 创建图
         fig = plt.figure(figsize=(12, 8))
         ax = fig.add_subplot(111, projection='3d')
@@ -155,31 +156,52 @@ class Runner:
         min_reward = np.min(rewards)
         max_reward = np.max(rewards)
 
-        # 定义目标点
-        target = self.env_evaluate.TARGET_POS
-
-        # 绘制目标点
-        ax.scatter(target[0], target[1], target[2], color='k', s=100, label='Target')
-
         # 生成三种颜色映射
         cmaps = [plt.cm.Reds, plt.cm.Greens, plt.cm.Blues]  # 三种渐变色
-        norms = [plt.Normalize(min_reward-1, max_reward) for _ in range(3)]
+        norms = [plt.Normalize(min_reward - 1, max_reward) for _ in range(3)]
 
-        for agent_id in range(self.args.N_drones):
-            agent_states = states[:, agent_id, :3]
-            agent_rewards = rewards[:, agent_id]
-            cmap = cmaps[agent_id % len(cmaps)]  # 循环使用渐变色
-            norm = norms[agent_id % len(norms)]
+        # 保存路径数据的目录
+        save_dir = "./agent_paths"
+        os.makedirs(save_dir, exist_ok=True)
 
-            # 减少绘制点数
-            step_size = max(1, len(agent_states) // 500)  # 绘制最多 100 个点
+        # 保存文件的路径
+        save_file_path = os.path.join(save_dir, "good_example.txt")
 
-            # 绘制轨迹，根据奖励值调整颜色亮度
-            for i in range(0, len(agent_states) - 1, step_size):
-                color_intensity = norm(agent_rewards[i])
-                line_color = cmap(color_intensity)
-                ax.plot(agent_states[i:i + 2, 0], agent_states[i:i + 2, 1], agent_states[i:i + 2, 2],
-                        color=line_color)
+        # 定义不同的颜色，用于区分目标点
+        colors = ['r', 'g', 'b']
+
+        # 打开文件以写入数据
+        with open(save_file_path, 'w') as f:
+            # 保存目标点数据
+            f.write("# Target Points\n")
+            for _id in range(self.args.N_drones):
+                target = self.env_evaluate.TARGET_POS[_id]
+                f.write(f"{_id}: {target[0]}, {target[1]}, {target[2]}\n")
+                # 使用不同的颜色绘制目标点
+                ax.scatter(target[0], target[1], target[2], color=colors[_id % len(colors)],
+                           s=100, marker='x', label=f'Target {_id}')
+
+            # 保存智能体轨迹数据
+            f.write("\n# Agent Trajectories (x, y, z)\n")
+            for agent_id in range(self.args.N_drones):
+                agent_states = states[:, agent_id, :3]  # 提取位置信息
+                agent_rewards = rewards[:, agent_id]
+                cmap = cmaps[agent_id % len(cmaps)]  # 循环使用渐变色
+                norm = norms[agent_id % len(norms)]
+
+                f.write(f"\nAgent {agent_id} trajectory:\n")
+                for i in range(len(agent_states)):
+                    f.write(f"{agent_states[i, 0]}, {agent_states[i, 1]}, {agent_states[i, 2]}\n")
+
+                # 减少绘制点数
+                step_size = max(1, len(agent_states) // 500)  # 绘制最多 500 个点
+
+                # 绘制轨迹，根据奖励值调整颜色亮度
+                for i in range(0, len(agent_states) - 1, step_size):
+                    color_intensity = norm(agent_rewards[i])
+                    line_color = cmap(color_intensity)
+                    ax.plot(agent_states[i:i + 2, 0], agent_states[i:i + 2, 1], agent_states[i:i + 2, 2],
+                            color=line_color)
 
         ax.set_title('Agent Positions and Actions Over Time')
         ax.set_xlabel('X')

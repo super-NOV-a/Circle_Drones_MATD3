@@ -92,7 +92,6 @@ class CircleSpreadAviary(CircleRLAviary):
         -------
         list of float
             每个无人机的奖励值。
-
         """
         states = {i: self._getDroneStateVector(i, with_target=True) for i in range(self.NUM_DRONES)}
         rewards = [0 for _ in range(self.NUM_DRONES)]
@@ -100,41 +99,36 @@ class CircleSpreadAviary(CircleRLAviary):
         # 计算目标点距离
         dis_to_target = np.array([np.linalg.norm(states[idx]['target_pos_dis'][:2]) for idx in range(self.NUM_DRONES)])
         h_to_target = np.array([states[idx]['target_pos_dis'][2] for idx in range(self.NUM_DRONES)])
-        dis_to_circle = np.abs(dis_to_target - 0.4)     # 0.4 是期望保持的距离
         velocity = np.array([np.linalg.norm(states[idx]['vel'][-1]) for idx in range(self.NUM_DRONES)])
 
         # 为每个无人机计算奖励
         for i in range(self.NUM_DRONES):
             # 鼓励在目标附近的小范围内移动
-            if dis_to_circle[i] < 0.1:
+            if dis_to_target[i] < 0.1:
                 rewards[i] += 15  # 当距离目标很近时，给予较大的奖励
-            elif dis_to_circle[i] < 0.2:
-                rewards[i] += 10
-            elif dis_to_circle[i] < 0.5:
-                rewards[i] += 5  # 当距离目标较近时，给予中等奖励
-            elif dis_to_circle[i] < 1.0:
-                rewards[i] += 2
+            elif dis_to_target[i] < 0.2:
+                rewards[i] += 8
+            elif dis_to_target[i] < 0.5:
+                rewards[i] += 4  # 当距离目标较近时，给予中等奖励
+            elif dis_to_target[i] < 1.0:
+                rewards[i] += 1
             else:
-                rewards[i] -= 0.5  # 距离目标较远时，给予惩罚
+                rewards[i] -= 0.1  # 距离目标较远时，给予惩罚
 
             # 适度减少速度惩罚
             rewards[i] -= 0.1 * velocity[i]
-            if dis_to_circle[i] < 0.3:  # 靠近目标需要更小的速度
+            if dis_to_target[i] < 0.3:  # 靠近目标需要更小的速度
                 rewards[i] -= 1 * velocity[i]
-
-            # 对距离目标过近的情况进行惩罚
-            if dis_to_target[i] < 0.13:
-                rewards[i] -= 5
 
             # 鼓励保持在目标的合适高度范围内
             if np.abs(h_to_target[i]) < 0.05:
-                rewards[i] += 10  # 高度接近目标时，给予较大的奖励
+                rewards[i] += 5  # 高度接近目标时，给予较大的奖励
             elif np.abs(h_to_target[i]) < 0.1:
-                rewards[i] += 5  # 高度较接近目标时，给予中等奖励
-            elif np.abs(h_to_target[i]) < 0.2:
+                rewards[i] += 3  # 高度较接近目标时，给予中等奖励
+            elif np.abs(h_to_target[i]) < 0.4:
                 rewards[i] += 1  # 高度接近目标时，给予微弱奖励
             else:
-                rewards[i] -= 0.5  # 高度较远时，给予惩罚
+                rewards[i] -= 0.1  # 高度较远时，给予惩罚
 
             # 如果这一step的dis_to_target比上一step小，则给一个正的奖励
             if dis_to_target[i] < self.previous_dis_to_target[i]:
@@ -168,7 +162,6 @@ class CircleSpreadAviary(CircleRLAviary):
         """
         dones = [False for _ in range(self.NUM_DRONES)]
         punish = [0.0 for _ in range(self.NUM_DRONES)]  # Use a floating-point value for dynamic punish
-        # out_of_bounds_count = 0
 
         for i in range(self.NUM_DRONES):
             state = self._getDroneStateVector(i, True)
@@ -177,17 +170,13 @@ class CircleSpreadAviary(CircleRLAviary):
             roll, pitch, _ = state['rpy']
 
             # 检查出界
-            if z > 3 or z < 0 or dis > 10:
-                punish[i] = 10
-                # out_of_bounds_count += 1
+            if z > 4 or z < 0 or dis > 10:
+                punish[i] = 5
 
             # 姿态惩罚
             if abs(roll) > 0.4 or abs(pitch) > 0.4:
-                punish[i] = max(punish[i], 3)   # 未出界但是姿态不稳定
+                punish[i] = max(punish[i], 1)   # 未出界但是姿态不稳定
 
-        # 出界过多,执行够次数 结束回合
-        # if out_of_bounds_count >= (self.NUM_DRONES + 1) / 2:
-        #     dones = [True for _ in range(self.NUM_DRONES)]
         if self.step_counter / self.PYB_FREQ > self.EPISODE_LEN_SEC:
             dones = [True for _ in range(self.NUM_DRONES)]
 

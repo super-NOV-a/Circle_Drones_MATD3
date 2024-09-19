@@ -1,18 +1,18 @@
-import time
 import torch
 import numpy as np
 from torch.utils.tensorboard import SummaryWriter
-from env.make_env import make_env
 import argparse
 from utils.replay_buffer import ReplayBuffer
 from utils.maddpg import MADDPG
-from utils.matd3 import MATD3
+from utils.matd3_po import MATD3
 import copy
-from gym_pybullet_drones.envs.Spread3d import Spread3dAviary
+from gym_pybullet_drones.envs.CircleSpread import CircleSpreadAviary
 from gym_pybullet_drones.utils.enums import ObservationType, ActionType
 
-Env_name = 'spread3d'   # 'spread3d', 'simple_spread'
+Env_name = 'circleP'  # 'spread3d', 'simple_spread'
 action = 'vel'
+observation = 'kin_target_po'   # 相比kin_target 观测会多一个Fs
+#  此文件使用了师姐的Potential势能方法，从环境中计算势能用于更新Critic。 CircleSpread环境已经修改为返回值包含势能了
 
 
 class Runner:
@@ -23,18 +23,20 @@ class Runner:
         self.number = args.N_drones
         self.seed = 1145  # 保证一个seed，名称使用记号--mark
         self.mark = args.mark
-        self.args.share_prob = 0.05    # 还是别共享了，有些无用
+        self.load_mark = None
+        self.args.share_prob = 0.05  # 还是别共享了，有些无用
         # Create env
-        if self.env_name == 'spread3d':
+        if self.env_name == 'circleP':
             Ctrl_Freq = args.Ctrl_Freq  # 30
-            self.env = Spread3dAviary(gui=False, num_drones=args.N_drones, obs=ObservationType('kin_target'),
-                                      act=ActionType(action),
-                                      ctrl_freq=Ctrl_Freq,  # 这个值越大，仿真看起来越慢，应该是由于频率变高，速度调整的更小了
-                                      need_target=True, obs_with_act=True)
-            self.env_evaluate = Spread3dAviary(gui=False, num_drones=args.N_drones, obs=ObservationType('kin_target'),
-                                               act=ActionType(action),
-                                               ctrl_freq=Ctrl_Freq,
-                                               need_target=True, obs_with_act=True)
+            self.env = CircleSpreadAviary(gui=False, num_drones=args.N_drones, obs=ObservationType(observation),
+                                          act=ActionType(action),
+                                          ctrl_freq=Ctrl_Freq,  # 这个值越大，仿真看起来越慢，应该是由于频率变高，速度调整的更小了
+                                          need_target=True, obs_with_act=True)
+            self.env_evaluate = CircleSpreadAviary(gui=False, num_drones=args.N_drones,
+                                                   obs=ObservationType(observation),
+                                                   act=ActionType(action),
+                                                   ctrl_freq=Ctrl_Freq,
+                                                   need_target=True, obs_with_act=True)
             self.timestep = 1 / Ctrl_Freq  # 计算每个步骤的时间间隔 0.003
 
             # self.env.observation_space.shape = box[N,78]
@@ -43,21 +45,9 @@ class Runner:
             self.args.action_dim_n = [self.env.action_space[i].shape[0] for i in
                                       range(self.args.N_drones)]  # actions dimensions of N agents
             # print("observation_space=", self.env.observation_space)
-            print("obs_dim_n={}".format(self.args.obs_dim_n))
+            print(f"obs_dim_n={self.args.obs_dim_n}")
             # print("action_space=", self.env.action_space)
-            print("action_dim_n={}".format(self.args.action_dim_n))
-        elif self.env_name == 'simple_spread':
-            self.env = make_env(self.env_name, Discrete=False)  # Continuous action space
-            self.env_evaluate = make_env(self.env_name, Discrete=False)
-            self.args.N = self.env.n  # The number of agents
-            self.args.obs_dim_n = [self.env.observation_space[i].shape[0] for i in
-                                   range(self.args.N)]  # obs dimensions of N agents
-            self.args.action_dim_n = [self.env.action_space[i].shape[0] for i in
-                                      range(self.args.N)]  # actions dimensions of N agents
-            print("observation_space=", self.env.observation_space)
-            print("obs_dim_n={}".format(self.args.obs_dim_n))
-            print("action_space=", self.env.action_space)
-            print("action_dim_n={}".format(self.args.action_dim_n))
+            print(f"action_dim_n={self.args.action_dim_n}")
 
         # Set random seed
         np.random.seed(self.seed)
@@ -76,81 +66,50 @@ class Runner:
 
         # Create a tensorboard
         self.writer = SummaryWriter(
-            log_dir='runs/{}/{}_env_{}_number_{}_mark_{}'.format(self.args.algorithm, self.args.algorithm,
-                                                                 self.env_name, self.number, self.mark))
-
+            log_dir=f'runs/{self.args.algorithm}/env_{self.env_name}_number_{self.number}_mark_{self.mark}')
+        print(f'存储位置:env_{self.env_name}_number_{self.number}_mark_{self.mark}')
         self.evaluate_rewards = []  # Record the rewards during the evaluating
         self.total_steps = 0
         self.noise_std = self.args.noise_std_init  # Initialize noise_std
 
-    def convert_obs_dict_to_array(self, obs_dict):
-        obs_array = []
-        if self.args.N_drones != 1:
-            for i in range(self.args.N_drones):
-                obs = obs_dict[i]
-                # action_buffer_flat = np.hstack(obs['action_buffer'])    # 拉成一维
-                obs_array.append(np.hstack([
-                    obs['pos'],
-                    obs['rpy'],
-                    obs['vel'],
-                    obs['ang_vel'],
-                    obs['target_pos'],
-                    obs['other_pos'],
-                    obs['action_buffer']    # 先不考虑动作
-                ]))
-        else:
-            pass
-        return np.array(obs_array).astype('float32')
-
-    def convert_wrap(self, obs_dict):
-        if self.env_name == 'spread3d':   # 'simple_spread'
-            if isinstance(obs_dict, dict):
-                obs_dict = self.convert_obs_dict_to_array(obs_dict)
-            else:
-                obs_dict = obs_dict
-            return obs_dict
-        elif self.env_name == 'simple_spread':
-            return obs_dict
+        if self.load_mark is not None:
+            for agent_id in range(self.args.N_drones):
+                # 加载模型参数
+                model_path = "./model/{}/{}_actor_mark_{}_number_{}_step_{}k_agent_{}.pth".format(self.env_name,
+                                                                                                  self.args.algorithm,
+                                                                                                  self.load_mark,
+                                                                                                  self.number,
+                                                                                                  int(10000),
+                                                                                                  agent_id)  # agent_id
+                self.agent_n[agent_id].actor.load_state_dict(torch.load(model_path))
 
     def run(self, ):
         while self.total_steps < self.args.max_train_steps:
-            if self.env_name == 'spread3d':
-                obs_n, _ = self.env.reset()  # gym new api
-            else:
-                obs_n = self.env.reset()  # gym old api
-            obs_n = self.convert_wrap(obs_n)
-            train_reward = 0
-            rewards_n = [0] * self.args.N_drones
+            obs_n, _ = self.env.reset()  # gym new api
+            episode_total_reward = 0  # 改进：train_reward -> episode_total_reward，表示当前episode的总奖励
+            agent_rewards = [0] * self.args.N_drones  # 改进：rewards_n -> agent_rewards，表示每个智能体的累计奖励
 
             for count in range(self.args.episode_limit):
 
-                a_n = [agent.choose_action(obs, noise_std=self.noise_std) for agent, obs in zip(self.agent_n, obs_n)]
-                # print(f'a_n:{a_n}')
-                if self.env_name == 'spread3d':
-                    obs_next_n, r_n, done_n, _, _ = self.env.step(copy.deepcopy(a_n))  # gym new api
-                else:
-                    obs_next_n, r_n, done_n, _ = self.env.step(copy.deepcopy(a_n))
-                obs_next_n = self.convert_wrap(obs_next_n)
+                actions_n = [agent.choose_action(obs, noise_std=self.noise_std) for agent, obs in
+                             zip(self.agent_n, obs_n)]
+                obs_next_n, rewards_n, done_n, _, _ = self.env.step(copy.deepcopy(actions_n))  # gym new api
+                # obs_next_n = self.convert_wrap(obs_next_n)
 
-                self.replay_buffer.store_transition(obs_n, a_n, r_n, obs_next_n, done_n)
+                self.replay_buffer.store_transition(obs_n, actions_n, rewards_n, obs_next_n, done_n)
                 obs_n = obs_next_n
-                train_reward += np.mean(r_n)
-                rewards_n = [r + reward for r, reward in zip(rewards_n, r_n)]  # Accumulate rewards for each agent
+                episode_total_reward += np.mean(rewards_n)  # 当前episode的总奖励
+                agent_rewards = [cumulative_reward + reward for cumulative_reward, reward in
+                                 zip(agent_rewards, rewards_n)]  # 每个智能体的累计奖励
                 self.total_steps += 1
 
                 if self.args.use_noise_decay:
                     self.noise_std = self.noise_std - self.args.noise_std_decay if self.noise_std - self.args.noise_std_decay > self.args.noise_std_min else self.args.noise_std_min
 
-                # 之前这里还可以拓展，现在不行了，在仿真中用掉了时间
-
                 if self.total_steps % self.args.evaluate_freq == 0:
                     # self.evaluate_policy()
                     self.save_model()  # 评估中实现save了
-                    if self.env_name == 'spread3d':
-                        obs_n, _ = self.env.reset()  # gym new api
-                    else:
-                        obs_n = self.env.reset()  # gym old api
-                    obs_n = self.convert_wrap(obs_n)
+                    obs_n, _ = self.env.reset()  # gym new api
 
                 if all(done_n):
                     break
@@ -160,13 +119,14 @@ class Runner:
                     for agent_id in range(self.args.N_drones):
                         self.agent_n[agent_id].train(self.replay_buffer, self.agent_n)
 
-            print("total_steps:{} \t train_reward:{} \t noise_std:{}".format(self.total_steps, train_reward,
-                                                                             self.noise_std))
+            print(f"total_steps:{self.total_steps} \t episode_total_reward:{int(episode_total_reward)} \t "
+                  f"noise_std:{self.noise_std}")
 
-            for agent_id, reward in enumerate(rewards_n):
-                self.writer.add_scalar('Agent_{}_train_reward'.format(agent_id), reward, global_step=self.total_steps)
+            for agent_id, cumulative_reward in enumerate(agent_rewards):
+                self.writer.add_scalar(f'Agent_{agent_id}_train_reward', int(cumulative_reward),
+                                       global_step=self.total_steps)
 
-            self.writer.add_scalar('train_step_rewards_{}'.format(self.env_name), train_reward,
+            self.writer.add_scalar(f'train_step_rewards_{self.env_name}', int(episode_total_reward),
                                    global_step=self.total_steps)
 
         self.env.close()
@@ -200,12 +160,14 @@ class Runner:
         # np.save('./data_train/{}_env_{}_number_{}_seed_{}.npy'.format(self.args.algorithm, self.env_name, self.number,
         #                                                               self.seed), np.array(self.evaluate_rewards))
         for agent_id in range(self.args.N_drones):
-            self.agent_n[agent_id].save_model(self.env_name, self.args.algorithm, self.mark, self.number, self.total_steps,
+            self.agent_n[agent_id].save_model(self.env_name, self.args.algorithm, self.mark, self.number,
+                                              self.total_steps,
                                               agent_id)
 
     def save_model(self):
         for agent_id in range(self.args.N_drones):
-            self.agent_n[agent_id].save_model(self.env_name, self.args.algorithm, self.mark, self.number, self.total_steps,
+            self.agent_n[agent_id].save_model(self.env_name, self.args.algorithm, self.mark, self.number,
+                                              self.total_steps,
                                               agent_id)
 
 
