@@ -9,6 +9,13 @@
 
 9/19：本次更新时使用位姿信息，环境中新增势能Fs计算，网络复现并稍微修改了师姐的势能+注意力网络（POMMAC），但是运行速度较低。
 
+使用时运行：
+
+```
+4.MADDPG_MATD3_MPE/MATD3_main_CircleSpread.py	(MATD3基准模型)
+4.MADDPG_MATD3_MPE/MATD3_main_CircleSpread_PO.py	(师姐势能+注意力模型 POMAAC)
+```
+
 此仓库是在下列仓库基础上创建的：[Lizhi-sjtu/MARL-code-pytorch: Concise pytorch implements of MARL algorithms, including MAPPO, MADDPG, MATD3, QMIX and VDN. (github.com)](https://github.com/Lizhi-sjtu/MARL-code-pytorch)
 
 目前本人使用的**python3.10**环境的package主要包括：
