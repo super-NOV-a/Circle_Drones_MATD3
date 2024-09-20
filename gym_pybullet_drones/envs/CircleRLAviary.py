@@ -501,7 +501,7 @@ class CircleRLAviary(CircleBaseAviary):
             print("[ERROR] in LyyRLAviary._computeObs()")
 
 
-def potential_energy(obs_dict, num_agents, eta_att=1, eta_rep_agent=0.1, d0=1.0):
+def potential_energy(obs_dict, num_agents, eta_att=1, eta_rep_agent=0.5, d0=1.0):
     """
     计算势能F，用于帮助critic收敛
 

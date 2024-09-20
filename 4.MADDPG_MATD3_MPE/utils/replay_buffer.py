@@ -4,6 +4,7 @@ import numpy as np
 
 class ReplayBuffer(object):
     def __init__(self, args):
+        self.device = args.device
         self.N_drones = args.N_drones  # The number of agents
         self.buffer_size = args.buffer_size
         self.batch_size = args.batch_size
@@ -35,10 +36,10 @@ class ReplayBuffer(object):
         index = np.random.choice(self.current_size, size=self.batch_size, replace=False)
         batch_obs_n, batch_a_n, batch_r_n, batch_obs_next_n, batch_done_n = [], [], [], [], []
         for agent_id in range(self.N_drones):
-            batch_obs_n.append(torch.tensor(self.buffer_obs_n[agent_id][index], dtype=torch.float))
-            batch_a_n.append(torch.tensor(self.buffer_a_n[agent_id][index], dtype=torch.float))
-            batch_r_n.append(torch.tensor(self.buffer_r_n[agent_id][index], dtype=torch.float))
-            batch_obs_next_n.append(torch.tensor(self.buffer_s_next_n[agent_id][index], dtype=torch.float))
-            batch_done_n.append(torch.tensor(self.buffer_done_n[agent_id][index], dtype=torch.float))
+            batch_obs_n.append(torch.tensor(self.buffer_obs_n[agent_id][index], dtype=torch.float).to(self.device))
+            batch_a_n.append(torch.tensor(self.buffer_a_n[agent_id][index], dtype=torch.float).to(self.device))
+            batch_r_n.append(torch.tensor(self.buffer_r_n[agent_id][index], dtype=torch.float).to(self.device))
+            batch_obs_next_n.append(torch.tensor(self.buffer_s_next_n[agent_id][index], dtype=torch.float).to(self.device))
+            batch_done_n.append(torch.tensor(self.buffer_done_n[agent_id][index], dtype=torch.float).to(self.device))
 
         return batch_obs_n, batch_a_n, batch_r_n, batch_obs_next_n, batch_done_n

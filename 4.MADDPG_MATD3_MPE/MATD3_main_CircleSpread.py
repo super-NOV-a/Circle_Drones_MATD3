@@ -14,10 +14,11 @@ Env_name = 'circle'  # 'spread3d', 'simple_spread'
 action = 'vel'
 observation = 'kin_target'
 
+
 class Runner:
     def __init__(self, args):
         self.args = args
-        self.args.decive = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.args.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.env_name = Env_name
         self.number = args.N_drones
         self.seed = 1145  # 保证一个seed，名称使用记号--mark
@@ -55,10 +56,10 @@ class Runner:
         # Create N agents
         if self.args.algorithm == "MADDPG":
             print("Algorithm: MADDPG")
-            self.agent_n = [MADDPG(args, agent_id) for agent_id in range(args.N_drones)]
+            self.agent_n = [MADDPG(self.args, agent_id) for agent_id in range(args.N_drones)]
         elif self.args.algorithm == "MATD3":
             print("Algorithm: MATD3")
-            self.agent_n = MATD3.initialize_agents(args)
+            self.agent_n = MATD3.initialize_agents(self.args)
         else:
             print("Wrong!!!")
         self.replay_buffer = ReplayBuffer(self.args)
