@@ -35,15 +35,11 @@ class Runner:
                                  ctrl_freq=Ctrl_Freq,
                                  need_target=True, obs_with_act=True)
         self.timestep = 1 / Ctrl_Freq  # 计算每个步骤的时间间隔 0.003
-
-        # self.env.observation_space.shape = box[N,78]
         self.args.obs_dim_n = [self.env.observation_space[i].shape[0] for i in
                                range(self.args.N_drones)]  # obs dimensions of N agents
         self.args.action_dim_n = [self.env.action_space[i].shape[0] for i in
                                   range(self.args.N_drones)]  # actions dimensions of N agents
-        # print("observation_space=", self.env.observation_space)
         print(f"obs_dim_n={self.args.obs_dim_n}")
-        # print("action_space=", self.env.action_space)
         print(f"action_dim_n={self.args.action_dim_n}")
 
         # Set random seed
@@ -108,7 +104,7 @@ class Runner:
                     self.save_model()  # 评估中实现save了
                     obs_n, _ = self.env.reset()  # gym new api
 
-                if all(done_n):
+                if any(done_n):
                     break
 
             if self.replay_buffer.current_size > self.args.batch_size:
@@ -128,38 +124,6 @@ class Runner:
 
         self.env.close()
         self.env_evaluate.close()
-
-    def evaluate_policy(self, ):
-        evaluate_reward = 0
-        for _ in range(self.args.evaluate_times):
-            obs_n, _ = self.env_evaluate.reset()
-            episode_reward = 0
-            a = self.agent_n[0].choose_action(obs_n[0], 0)
-            for _ in range(self.args.test_episode_limit):
-
-                a_n = [agent.choose_action(obs, noise_std=0) for agent, obs in
-                       zip(self.agent_n, obs_n)]  # We do not add noise when evaluating
-                obs_next_n, r_n, done_n, _, _ = self.env_evaluate.step(copy.deepcopy(a_n))
-                episode_reward += np.mean(r_n)  # 修改为均值
-                obs_n = obs_next_n
-
-                if all(done_n):
-                    break
-            evaluate_reward += episode_reward
-
-        evaluate_reward = evaluate_reward / self.args.evaluate_times
-        self.evaluate_rewards.append(evaluate_reward)
-        # print("total_steps:{} \t evaluate_reward:{} \t noise_std:{}".format(self.total_steps, evaluate_reward,
-        #                                                                     self.noise_std))
-        # self.writer.add_scalar('evaluate_step_rewards_{}'.format(self.env_name), evaluate_reward,
-        #                        global_step=self.total_steps)
-        # Save the rewards and models
-        # np.save('./data_train/{}_env_{}_number_{}_seed_{}.npy'.format(self.args.algorithm, self.env_name, self.number,
-        #                                                               self.seed), np.array(self.evaluate_rewards))
-        for agent_id in range(self.args.N_drones):
-            self.agent_n[agent_id].save_model(self.env_name, self.args.algorithm, self.mark, self.number,
-                                              self.total_steps,
-                                              agent_id)
 
     def save_model(self):
         for agent_id in range(self.args.N_drones):

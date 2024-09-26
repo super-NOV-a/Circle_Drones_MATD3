@@ -92,6 +92,9 @@ class C3V1(C3V1RLAviary):
             dis = state['target_pos_dis'][3]
             roll, pitch, _ = state['rpy']
 
+            if dis < 0.1:
+                dones[i] = True
+                punish[i] -= 8000
             # 检查出界
             if z > 4 or z < 0 or dis > 10:
                 punish[i] = 10
@@ -100,9 +103,8 @@ class C3V1(C3V1RLAviary):
             if abs(roll) > 0.4 or abs(pitch) > 0.4:
                 punish[i] = max(punish[i], 1)   # 未出界但是姿态不稳定
 
-        if self.step_counter / self.PYB_FREQ > self.EPISODE_LEN_SEC:    # step_counter 最大是8 * 1000（看设置的）
-            dones = [True for _ in range(self.NUM_DRONES)]
-
+        # if self.step_counter / self.PYB_FREQ > self.EPISODE_LEN_SEC:    # step_counter 最大是8 * 1000（看设置的）
+        #     dones = [True for _ in range(self.NUM_DRONES)]
         return dones, punish
 
     ################################################################################
