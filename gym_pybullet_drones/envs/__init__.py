@@ -6,3 +6,6 @@ from gym_pybullet_drones.envs.VelocityAviary import VelocityAviary
 from gym_pybullet_drones.envs.CircleBaseAviary import CircleBaseAviary
 from gym_pybullet_drones.envs.CircleRLAviary import CircleRLAviary
 from gym_pybullet_drones.envs.CircleSpread import CircleSpreadAviary
+from gym_pybullet_drones.envs.C3V1BaseAviary import C3V1BaseAviary
+from gym_pybullet_drones.envs.C3V1RLAviary import C3V1RLAviary
+from gym_pybullet_drones.envs.C3V1 import C3V1

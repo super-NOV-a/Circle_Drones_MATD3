@@ -3,6 +3,8 @@ import random
 import time
 from datetime import datetime
 import xml.etree.ElementTree as etxml
+from pprint import pprint
+
 import pkg_resources
 from PIL import Image
 import numpy as np
@@ -41,17 +43,7 @@ def generate_non_overlapping_positions_numpy(scale=1.0):
     return positions
 
 
-# 例子
-# positions = generate_non_overlapping_positions_numpy(scale=2)
-
-
-class CircleBaseAviary(gym.Env):
-    """Base class for "drone aviary" Gym environments."""
-
-    # metadata = {'render.modes': ['human']}
-
-    ################################################################################
-
+class C3V1BaseAviary(gym.Env):
     def __init__(self,
                  drone_model: DroneModel = DroneModel.CF2X,
                  num_drones: int = 1,
@@ -70,38 +62,6 @@ class CircleBaseAviary(gym.Env):
                  need_target=False,
                  obs_with_act=False
                  ):
-        """Initialization of a generic aviary environment.
-
-        Parameters
-        ----------
-        drone_model : DroneModel, optional
-            The desired drone type (detailed in an .urdf file in folder `assets`).
-        num_drones : int, optional
-            The desired number of drones in the aviary.
-        neighbourhood_radius : float, optional
-            Radius used to compute the drones' adjacency matrix, in meters.
-        initial_xyzs: ndarray | None, optional
-            (NUM_DRONES, 3)-shaped array containing the initial XYZ position of the drones.
-        initial_rpys: ndarray | None, optional
-            (NUM_DRONES, 3)-shaped array containing the initial orientations of the drones (in radians).
-        physics : Physics, optional
-            The desired implementation of PyBullet physics/custom dynamics.
-        pyb_freq : int, optional
-            The frequency at which PyBullet steps (a multiple of ctrl_freq).
-        ctrl_freq : int, optional
-            The frequency at which the environment steps.
-        gui : bool, optional
-            Whether to use PyBullet's GUI.
-        record : bool, optional
-            Whether to save a video of the simulation.
-        obstacles : bool, optional
-            Whether to add obstacles to the simulation.
-        user_debug_gui : bool, optional
-            Whether to draw the drones' axes and the GUI RPMs sliders.
-        vision_attributes : bool, optional
-            Whether to allocate the attributes needed by vision-based aviary subclasses.
-
-        """
         #### Constants #############################################
         self.G = 9.8
         self.RAD2DEG = 180 / np.pi
@@ -127,22 +87,22 @@ class CircleBaseAviary(gym.Env):
         self.OUTPUT_FOLDER = output_folder
         #### Load the drone properties from the .urdf file #########
         self.M, \
-            self.L, \
-            self.THRUST2WEIGHT_RATIO, \
-            self.J, \
-            self.J_INV, \
-            self.KF, \
-            self.KM, \
-            self.COLLISION_H, \
-            self.COLLISION_R, \
-            self.COLLISION_Z_OFFSET, \
-            self.MAX_SPEED_KMH, \
-            self.GND_EFF_COEFF, \
-            self.PROP_RADIUS, \
-            self.DRAG_COEFF, \
-            self.DW_COEFF_1, \
-            self.DW_COEFF_2, \
-            self.DW_COEFF_3 = self._parseURDFParameters()
+        self.L, \
+        self.THRUST2WEIGHT_RATIO, \
+        self.J, \
+        self.J_INV, \
+        self.KF, \
+        self.KM, \
+        self.COLLISION_H, \
+        self.COLLISION_R, \
+        self.COLLISION_Z_OFFSET, \
+        self.MAX_SPEED_KMH, \
+        self.GND_EFF_COEFF, \
+        self.PROP_RADIUS, \
+        self.DRAG_COEFF, \
+        self.DW_COEFF_1, \
+        self.DW_COEFF_2, \
+        self.DW_COEFF_3 = self._parseURDFParameters()
         print(
             "[INFO] BaseAviary.__init__() loaded parameters from the drone's .urdf:\n[INFO] m {:f}, L {:f},\n[INFO] ixx {:f}, iyy {:f}, izz {:f},\n[INFO] kf {:f}, km {:f},\n[INFO] t2w {:f}, max_speed_kmh {:f},\n[INFO] gnd_eff_coeff {:f}, prop_radius {:f},\n[INFO] drag_xy_coeff {:f}, drag_z_coeff {:f},\n[INFO] dw_coeff_1 {:f}, dw_coeff_2 {:f}, dw_coeff_3 {:f}".format(
                 self.M, self.L, self.J[0, 0], self.J[1, 1], self.J[2, 2], self.KF, self.KM, self.THRUST2WEIGHT_RATIO,
@@ -232,12 +192,14 @@ class CircleBaseAviary(gym.Env):
                                                             farVal=1000.0
                                                             )
         #### Set initial poses #####################################
-        if initial_xyzs is None:  # todo 修改初始位置
+        if initial_xyzs is None:
             # 0.8:9个随机cell位置，1.0: 16个，1.3: 25个，1.5: 36个,1.8: 49个,2.0: 64个
             self.cell_pos = generate_non_overlapping_positions_numpy(2)
+            pprint(self.cell_pos)
             # 若需要，同时给定目标位置
             self.need_target = need_target
-            self.INIT_XYZS, self.TARGET_POS = self.get_init()
+            self.INIT_XYZS, self.TARGET_POS, self.END_Target = self.get_init()
+            self.INIT_Target = self.TARGET_POS
         elif np.array(initial_xyzs).shape == (self.NUM_DRONES, 3):
             self.INIT_XYZS = initial_xyzs
         else:
@@ -263,20 +225,19 @@ class CircleBaseAviary(gym.Env):
     ################################################################################
     def get_init(self):
         """
-        :return: 若需要目标，则返回 无人机+目标 初始位置 init_pos[:3], init_pos[3]/target
+        :return: 若需要目标，则返回 无人机+目标 初始位置 init_pos[:3], 3v1只需一个目标位置
         """
         if self.need_target:
-            init_pos = np.stack(random.sample(self.cell_pos, 2 * self.NUM_DRONES))
-            return init_pos[:self.NUM_DRONES], init_pos[self.NUM_DRONES:2 * self.NUM_DRONES]
+            init_pos = np.stack(random.sample(self.cell_pos, 2 + self.NUM_DRONES))
+            return init_pos[:self.NUM_DRONES], init_pos[self.NUM_DRONES], init_pos[self.NUM_DRONES+1]
         else:
             init_pos = np.stack(random.sample(self.cell_pos, self.NUM_DRONES))
             # init_pos = np.array([[1, 1, 1], [-1, -1, 0], [1, -1, 1]])
             return init_pos
 
     def show_target(self):
-        for i in range(self.NUM_DRONES):
             self.target_id = p.loadURDF("D:\\1codes\\Circle_Drones_MATD3\\gym_pybullet_drones\\assets\\box.urdf",
-                                        self.TARGET_POS[i],
+                                        self.TARGET_POS,
                                         p.getQuaternionFromEuler([0, 0, 0]), physicsClientId=self.CLIENT,
                                         useFixedBase=True)
             # 设置模型无重力
@@ -286,29 +247,24 @@ class CircleBaseAviary(gym.Env):
             p.setCollisionFilterGroupMask(self.target_id, -1, 0, 0)  # 设置碰撞组掩码
             p.setCollisionFilterPair(-1, -1, self.target_id, -1, 0)  # 设置碰撞对，使模型不与其他对象发生碰撞
 
+    def get_new_target_position(self):
+        # 计算半圆轨迹上的点
+        theta = np.pi * self.step_counter / 12000  # 从0到π  # 此处self.step_counter最大为8000
+        radius = np.linalg.norm(self.END_Target[:2] - self.INIT_Target[:2]) / 2  # 半径
+        center = (self.INIT_Target[:2] + self.END_Target[:2]) / 2  # 圆心
+        x = center[0] + radius * np.cos(theta)  # x坐标
+        y = center[1] + radius * np.sin(theta)  # y坐标
+        z = self.INIT_Target[2] + (self.END_Target[2] - self.INIT_Target[2]) * self.step_counter / 12000  # z坐标线性插值
+        return np.array([x, y, z])
+
     def update_target_pos(self):
         """
         更新self.Target_pos 还需要加上self.relative_pos 才得到真实的目标pos
+        目标位置或许需要和智能体一起更新，而不是智能体移动后才更新
         :return:
         """
-        pass
-        # # 随着计数次数增加，目标位置的变化变大
-        # gradient = np.arctan(self.step_counter) / 100  # step_counter~[0,1000000], gradient~[-0.01,0.01]
-        # # 随机选择方向并归一化
-        # direction = np.random.uniform(-1, 1, size=(3,))
-        # direction /= np.linalg.norm(direction)
-        #
-        # # 根据变化程度和方向更新目标位置
-        # self.TARGET_POS += gradient * direction
-        # # 剪切到所需的范围内  target_pos 维度大小只有[1, 3]
-        # self.TARGET_POS[:, 0:2] = np.clip(self.TARGET_POS[:, 0:2], -0.8, 0.8)
-        # self.TARGET_POS[:, 2] = np.clip(self.TARGET_POS[:, 2], 0.2, 0.8)
-        # # print("现在的目标位置修改为：", self.TARGET_POS)
-        # p.resetBasePositionAndOrientation(self.target_id, self.TARGET_POS[0], p.getQuaternionFromEuler([0, 0, 0]))
-
-    def _resetDronePosition(self, drone_idx, new_position):
-        # 可能不该使用，真实无人机无法reset
-        pass
+        self.TARGET_POS = self.get_new_target_position()
+        p.resetBasePositionAndOrientation(self.target_id, self.TARGET_POS, p.getQuaternionFromEuler([0, 0, 0]))
 
     def convert_obs_dict_to_array(self, obs_dict, if_PO):
         obs_array = []
@@ -348,8 +304,6 @@ class CircleBaseAviary(gym.Env):
 
         返回值：initial_obs, Fs # initial_info
         """
-
-        # TODO : initialize random number generator with seed
         p.resetSimulation(physicsClientId=self.CLIENT)
         #### Housekeeping ##########################################
         self._housekeeping()
@@ -357,12 +311,11 @@ class CircleBaseAviary(gym.Env):
         self._updateAndStoreKinematicInformation()
         ####  给定目标位置在 _housekeeping中 ###########################################
         if self.need_target:
-            # self.TARGET_POS = self.get_init_target()
             self.show_target()
         #### Start video recording #################################
         self._startVideoRecording()
         #### Return the initial observation ########################
-        obs, if_po = self._computeObs()     # 返回值中有是否添加势能的bool值
+        obs, if_po = self._computeObs()  # 返回值中有是否添加势能的bool值
         initial_obs = self.to_array_obs(obs, if_po)
         initial_info = self._computeInfo()
         # self.see_ball()
@@ -453,7 +406,7 @@ class CircleBaseAviary(gym.Env):
         self._updateAndStoreKinematicInformation()
         if self.need_target:
             self.update_target_pos()
-        _obs, if_po = self._computeObs()    # 是否
+        _obs, if_po = self._computeObs()  # 是否
         obs = self.to_array_obs(_obs, if_po)
         rewards = self._computeReward()
         terminated, punish = self._computeTerminated()
@@ -589,7 +542,8 @@ class CircleBaseAviary(gym.Env):
         p.setTimeStep(self.PYB_TIMESTEP, physicsClientId=self.CLIENT)  # 用于设置调用stepSimulation时的步长
         p.setAdditionalSearchPath(pybullet_data.getDataPath(), physicsClientId=self.CLIENT)  # 用于增加导入模型的路径
         #### Load ground plane, drone and obstacles models #########
-        self.INIT_XYZS, self.TARGET_POS = self.get_init()  # 重新给出位置
+        self.INIT_XYZS, self.TARGET_POS, self.END_Target = self.get_init()  # 重新给出位置
+        self.INIT_Target = self.TARGET_POS
         self.PLANE_ID = p.loadURDF("plane.urdf", physicsClientId=self.CLIENT)
 
         self.DRONE_IDS = np.array(
@@ -653,7 +607,7 @@ class CircleBaseAviary(gym.Env):
     ################################################################################
 
     def _getDroneStateVector(self, nth_drone, with_target=False):
-        """Returns the state vector of the n-th drone. todo 修改环境 这里总是要检查的
+        """Returns the state vector of the n-th drone.
 
             (3,   4,    3,   3,    3,       4*n,            4*(n-1),         4)
 
@@ -666,8 +620,8 @@ class CircleBaseAviary(gym.Env):
                 'rpy': self.rpy[nth_drone, :],  # 3
                 'vel': self.vel[nth_drone, :],  # 3
                 'ang_vel': self.ang_v[nth_drone, :],  # 3
-                'target_pos_dis': np.append(self.TARGET_POS[nth_drone, :] - self.pos[nth_drone, :],
-                                            np.linalg.norm(self.TARGET_POS[nth_drone, :] - self.pos[nth_drone, :]))  # 4
+                'target_pos_dis': np.append(self.TARGET_POS[:] - self.pos[nth_drone, :],
+                                            np.linalg.norm(self.TARGET_POS[:] - self.pos[nth_drone, :]))  # 4
             }
             other_pos_dis = []  # 存储智能体指向其他智能体的向量和距离 4*(N-1)
             for i in range(self.NUM_DRONES):
@@ -1139,7 +1093,7 @@ class CircleBaseAviary(gym.Env):
         DW_COEFF_2 = float(URDF_TREE[0].attrib['dw_coeff_2'])
         DW_COEFF_3 = float(URDF_TREE[0].attrib['dw_coeff_3'])
         return M, L, THRUST2WEIGHT_RATIO, J, J_INV, KF, KM, COLLISION_H, COLLISION_R, COLLISION_Z_OFFSET, MAX_SPEED_KMH, \
-            GND_EFF_COEFF, PROP_RADIUS, DRAG_COEFF, DW_COEFF_1, DW_COEFF_2, DW_COEFF_3
+               GND_EFF_COEFF, PROP_RADIUS, DRAG_COEFF, DW_COEFF_1, DW_COEFF_2, DW_COEFF_3
 
     ################################################################################
 
