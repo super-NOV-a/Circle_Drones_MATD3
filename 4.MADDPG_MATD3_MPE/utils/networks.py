@@ -136,13 +136,13 @@ class Critic_MATD3_Attention_Potential(nn.Module):
 
         # 创建 Q1 和 Q2 网络
         self.q1_network = nn.Sequential(
-            nn.Linear(args.hidden_dim * 2, args.hidden_dim),  # 使用 state 和 attention 融合的 value 特征
+            nn.Linear(self.input_dim + args.hidden_dim, args.hidden_dim),  # 使用 state 和 attention 融合的 value 特征
             nn.ReLU(),
             nn.Linear(args.hidden_dim, 1)
         ).to(self.device)
 
         self.q2_network = nn.Sequential(
-            nn.Linear(args.hidden_dim * 2, args.hidden_dim),
+            nn.Linear(self.input_dim + args.hidden_dim, args.hidden_dim),
             nn.ReLU(),
             nn.Linear(args.hidden_dim, 1)
         ).to(self.device)
@@ -170,7 +170,7 @@ class Critic_MATD3_Attention_Potential(nn.Module):
         attention_output = self.attention_layer(sa_hidden, state_encoded)
 
         # 4. Q值的计算
-        q_input = torch.cat([state_encoded, attention_output], dim=-1).to(self.device)  # 状态和融合后的 value 特征作为 Q 网络输入
+        q_input = torch.cat([sa_encoded, attention_output], dim=-1).to(self.device)  # 状态和融合后的 value 特征作为 Q 网络输入
         q1 = self.q1_network(q_input)  # Q1 输出
         q2 = self.q2_network(q_input)  # Q2 输出
 
@@ -196,7 +196,7 @@ class Critic_MATD3_Attention_Potential(nn.Module):
         attention_output = self.attention_layer(sa_hidden, state_encoded)
 
         # 4. Q值的计算
-        q_input = torch.cat([state_encoded, attention_output], dim=-1).to(self.device)  # 状态和融合后的 value 特征作为 Q 网络输入
+        q_input = torch.cat([sa_encoded, attention_output], dim=-1).to(self.device)  # 状态和融合后的 value 特征作为 Q 网络输入
         q1 = self.q1_network(q_input)  # Q1 输出
 
         return q1
@@ -215,10 +215,10 @@ class MultiHeadAttention(nn.Module):
         self.query = nn.Linear(hidden_dim, hidden_dim).to(self.device)
         self.key = nn.Linear(hidden_dim, hidden_dim).to(self.device)
         self.value = nn.Linear(hidden_dim, hidden_dim).to(self.device)
-        self.fc_out = nn.Linear(hidden_dim, hidden_dim).to(self.device)
+        # self.fc_out = nn.Linear(hidden_dim, hidden_dim).to(self.device)
 
-        self.dropout = nn.Dropout(dropout).to(self.device)
-        self.layer_norm = nn.LayerNorm(hidden_dim).to(self.device)
+        # self.dropout = nn.Dropout(dropout).to(self.device)
+        # self.layer_norm = nn.LayerNorm(hidden_dim).to(self.device)
 
     def forward(self, sa_hidden, state_hidden):
         batch_size = sa_hidden.shape[0]
@@ -235,14 +235,14 @@ class MultiHeadAttention(nn.Module):
 
         energy = torch.matmul(Q, K.transpose(-1, -2)) / (self.head_dim ** 0.5)  # (1024, 4, 16)
         attention = torch.softmax(energy, dim=-1)
-        attention = self.dropout(attention)     # (1024, 4, 4)
+        # attention = self.dropout(attention)     # (1024, 4, 4)
 
         out = torch.matmul(attention, V)
         out = out.transpose(1, 2).contiguous().view(batch_size, self.hidden_dim)
 
-        out = self.fc_out(out)
-        out = self.dropout(out)
+        # out = self.fc_out(out)
+        # out = self.dropout(out)
 
-        out = self.layer_norm(out + sa_hidden)
+        # out = self.layer_norm(out + sa_hidden)
 
         return out

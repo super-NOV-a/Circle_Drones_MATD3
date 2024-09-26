@@ -80,75 +80,116 @@ class CircleSpreadAviary(CircleRLAviary):
         self.previous_dis_to_target = np.zeros(num_drones)  # 初始化前一步的目标距离
 
     ################################################################################
-    import numpy as np
+    # def _computeReward(self):
+    #     """计算当前的奖励值。
+    #
+    #     state = Dict
+    #         (3,   4,    3,   3,    3,           4,            (n-1)*4,         4)
+    #         (pos, quat, rpy, vel, ang_vel, target_pos_dis, other_pos_dis, last_clipped_action)
+    #     Returns
+    #     -------
+    #     list of float
+    #         每个无人机的奖励值。
+    #     """
+    #     states = {i: self._getDroneStateVector(i, with_target=True) for i in range(self.NUM_DRONES)}
+    #     rewards = [0 for _ in range(self.NUM_DRONES)]
+    #
+    #     # 计算目标点距离
+    #     dis_to_target = np.array([np.linalg.norm(states[idx]['target_pos_dis'][:2]) for idx in range(self.NUM_DRONES)])
+    #     h_to_target = np.array([states[idx]['target_pos_dis'][2] for idx in range(self.NUM_DRONES)])
+    #     velocity = np.array([np.linalg.norm(states[idx]['vel'][-1]) for idx in range(self.NUM_DRONES)])
+    #
+    #     # 为每个无人机计算奖励
+    #     for i in range(self.NUM_DRONES):
+    #         # 鼓励在目标附近的小范围内移动
+    #         if dis_to_target[i] < 0.1:
+    #             rewards[i] += 15  # 当距离目标很近时，给予较大的奖励
+    #         elif dis_to_target[i] < 0.2:
+    #             rewards[i] += 8
+    #         elif dis_to_target[i] < 0.5:
+    #             rewards[i] += 4  # 当距离目标较近时，给予中等奖励
+    #         elif dis_to_target[i] < 1.0:
+    #             rewards[i] += 1
+    #         else:
+    #             rewards[i] -= 0.1  # 距离目标较远时，给予惩罚
+    #
+    #         # 适度减少速度惩罚
+    #         rewards[i] -= 0.1 * velocity[i]
+    #         if dis_to_target[i] < 0.3:  # 靠近目标需要更小的速度
+    #             rewards[i] -= 1 * velocity[i]
+    #
+    #         # 鼓励保持在目标的合适高度范围内
+    #         if np.abs(h_to_target[i]) < 0.05:
+    #             rewards[i] += 5  # 高度接近目标时，给予较大的奖励
+    #         elif np.abs(h_to_target[i]) < 0.1:
+    #             rewards[i] += 3  # 高度较接近目标时，给予中等奖励
+    #         elif np.abs(h_to_target[i]) < 0.4:
+    #             rewards[i] += 1  # 高度接近目标时，给予微弱奖励
+    #         else:
+    #             rewards[i] -= 0.1  # 高度较远时，给予惩罚
+    #
+    #         # 如果这一step的dis_to_target比上一step小，则给一个正的奖励
+    #         if dis_to_target[i] < self.previous_dis_to_target[i]:
+    #             rewards[i] += 1  # 你可以调整奖励的数值
+    #
+    #     # 队友保持距离与碰撞惩罚
+    #     if self.NUM_DRONES != 1:
+    #         for i in range(self.NUM_DRONES):
+    #             rewards_i = 0  # 临时存储奖励值，减少对 rewards 列表的访问次数
+    #             state_i = states[i]['other_pos_dis']
+    #             for j in range(self.NUM_DRONES - 1):
+    #                 dist_between_drones = state_i[j * 4 + 3]  # 获取距离
+    #                 # delta_h_drones = state_i[j * 4 + 2]  # 获取高度差
+    #                 if dist_between_drones < 0.13:
+    #                     rewards_i -= 1
+    #                 if dist_between_drones > 1:
+    #                     rewards_i -= 1
+    #             rewards[i] += rewards_i  # 将临时存储的奖励值加到 rewards 中
+    #
+    #     self.previous_dis_to_target = dis_to_target  # 更新前一步的目标距离
+    #     return rewards
 
     def _computeReward(self):
-        """计算当前的奖励值。
+        """
+        计算当前的奖励值。
 
         state = Dict
-            (3,   4,    3,   3,    3,           4,            (n-1)*4,         4)
-            (pos, quat, rpy, vel, ang_vel, target_pos_dis, other_pos_dis, last_clipped_action)
+        (3,   4,    3,   3,    3,           4,            (n-1)*4,         4)
+        (pos, quat, rpy, vel, ang_vel, target_pos_dis, other_pos_dis, last_clipped_action)
         Returns
         -------
         list of float
-            每个无人机的奖励值。
+        每个无人机的奖励值。
         """
+
         states = {i: self._getDroneStateVector(i, with_target=True) for i in range(self.NUM_DRONES)}
         rewards = [0 for _ in range(self.NUM_DRONES)]
 
         # 计算目标点距离
-        dis_to_target = np.array([np.linalg.norm(states[idx]['target_pos_dis'][:2]) for idx in range(self.NUM_DRONES)])
-        h_to_target = np.array([states[idx]['target_pos_dis'][2] for idx in range(self.NUM_DRONES)])
-        velocity = np.array([np.linalg.norm(states[idx]['vel'][-1]) for idx in range(self.NUM_DRONES)])
+        dis_to_target = np.array([states[idx]['target_pos_dis'] for idx in range(self.NUM_DRONES)])     # 4
+        # h_to_target = np.array([states[idx]['target_pos_dis'][2] for idx in range(self.NUM_DRONES)])        #
+        velocity = np.array([states[idx]['vel'] for idx in range(self.NUM_DRONES)])     # 4
+        v = np.array([np.linalg.norm(states[idx]['vel']) for idx in range(self.NUM_DRONES)])
 
         # 为每个无人机计算奖励
         for i in range(self.NUM_DRONES):
             # 鼓励在目标附近的小范围内移动
-            if dis_to_target[i] < 0.1:
-                rewards[i] += 15  # 当距离目标很近时，给予较大的奖励
-            elif dis_to_target[i] < 0.2:
-                rewards[i] += 8
-            elif dis_to_target[i] < 0.5:
-                rewards[i] += 4  # 当距离目标较近时，给予中等奖励
-            elif dis_to_target[i] < 1.0:
-                rewards[i] += 1
-            else:
-                rewards[i] -= 0.1  # 距离目标较远时，给予惩罚
-
+            rewards[i] += 10*pow(20, -dis_to_target[i][-1])  # 使用指数函数计算距离奖励 10*20^{-x}
             # 适度减少速度惩罚
-            rewards[i] -= 0.1 * velocity[i]
-            if dis_to_target[i] < 0.3:  # 靠近目标需要更小的速度
-                rewards[i] -= 1 * velocity[i]
-
+            rewards[i] -= 0.1 * v[i]
+            # 根据相似度调整奖励
+            cos_similarity = np.dot(velocity[i][:3], dis_to_target[i][:3]) / (v[i] * dis_to_target[i][-1])
+            rewards[i] += cos_similarity * 5  # 相似度越高，奖励越大
             # 鼓励保持在目标的合适高度范围内
-            if np.abs(h_to_target[i]) < 0.05:
-                rewards[i] += 5  # 高度接近目标时，给予较大的奖励
-            elif np.abs(h_to_target[i]) < 0.1:
-                rewards[i] += 3  # 高度较接近目标时，给予中等奖励
-            elif np.abs(h_to_target[i]) < 0.4:
-                rewards[i] += 1  # 高度接近目标时，给予微弱奖励
-            else:
-                rewards[i] -= 0.1  # 高度较远时，给予惩罚
+            rewards[i] += 10*pow(20, -np.abs(dis_to_target[i][2]))  # 使用指数函数计算高度奖励 3*20^{-x}
 
-            # 如果这一step的dis_to_target比上一step小，则给一个正的奖励
-            if dis_to_target[i] < self.previous_dis_to_target[i]:
-                rewards[i] += 1  # 你可以调整奖励的数值
-
-        # 队友保持距离与碰撞惩罚
-        if self.NUM_DRONES != 1:
-            for i in range(self.NUM_DRONES):
-                rewards_i = 0  # 临时存储奖励值，减少对 rewards 列表的访问次数
+            # 队友保持距离与碰撞惩罚
+            if self.NUM_DRONES != 1:
                 state_i = states[i]['other_pos_dis']
                 for j in range(self.NUM_DRONES - 1):
                     dist_between_drones = state_i[j * 4 + 3]  # 获取距离
-                    # delta_h_drones = state_i[j * 4 + 2]  # 获取高度差
-                    if dist_between_drones < 0.13:
-                        rewards_i -= 1
-                    if dist_between_drones > 1:
-                        rewards_i -= 1
-                rewards[i] += rewards_i  # 将临时存储的奖励值加到 rewards 中
-
-        self.previous_dis_to_target = dis_to_target  # 更新前一步的目标距离
+                    if dist_between_drones < 0.15:
+                        rewards[i] -= 100*pow(5, (-4*dist_between_drones-1))  # 50*5^{-4x-1}
         return rewards
 
     ################################################################################
@@ -171,7 +212,7 @@ class CircleSpreadAviary(CircleRLAviary):
 
             # 检查出界
             if z > 4 or z < 0 or dis > 10:
-                punish[i] = 5
+                punish[i] = 10
 
             # 姿态惩罚
             if abs(roll) > 0.4 or abs(pitch) > 0.4:

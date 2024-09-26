@@ -4,14 +4,14 @@ from torch.utils.tensorboard import SummaryWriter
 import argparse
 from utils.replay_buffer import ReplayBuffer
 from utils.maddpg import MADDPG
-from utils.matd3_po import MATD3
+from utils.matd3_attention import MATD3     # todo 修改
 import copy
 from gym_pybullet_drones.envs.CircleSpread import CircleSpreadAviary
 from gym_pybullet_drones.utils.enums import ObservationType, ActionType
 
-Env_name = 'circleP'  # 'spread3d', 'simple_spread'
+Env_name = 'circleA'  # 'spread3d', 'simple_spread'
 action = 'vel'
-observation = 'kin_target_po'   # 相比kin_target 观测会多一个Fs
+observation = 'kin_target'   # 相比kin_target 观测会多一个Fs
 #  此文件使用了师姐的Potential势能方法，从环境中计算势能用于更新Critic。 CircleSpread环境已经修改为返回值包含势能了
 
 
@@ -26,7 +26,7 @@ class Runner:
         self.load_mark = None
         self.args.share_prob = 0.05  # 还是别共享了，有些无用
         # Create env
-        if self.env_name == 'circleP':
+        if self.env_name == 'circleA':
             Ctrl_Freq = args.Ctrl_Freq  # 30
             self.env = CircleSpreadAviary(gui=False, num_drones=args.N_drones, obs=ObservationType(observation),
                                           act=ActionType(action),
@@ -186,8 +186,8 @@ if __name__ == '__main__':
     parser.add_argument("--batch_size", type=int, default=1024, help="Batch size")  # 1024-》4048
     parser.add_argument("--hidden_dim", type=int, default=64,
                         help="The number of neurons in hidden layers of the neural network")
-    parser.add_argument("--noise_std_init", type=float, default=0.02, help="The std of Gaussian noise for exploration")
-    parser.add_argument("--noise_std_min", type=float, default=0.005, help="The std of Gaussian noise for exploration")
+    parser.add_argument("--noise_std_init", type=float, default=0.05, help="The std of Gaussian noise for exploration")
+    parser.add_argument("--noise_std_min", type=float, default=0, help="The std of Gaussian noise for exploration")
     parser.add_argument("--noise_decay_steps", type=float, default=3e5,
                         help="How many steps before the noise_std decays to the minimum")
     parser.add_argument("--use_noise_decay", type=bool, default=True, help="Whether to decay the noise_std")
