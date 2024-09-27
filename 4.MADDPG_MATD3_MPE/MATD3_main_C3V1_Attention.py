@@ -1,3 +1,4 @@
+import os
 import torch
 import numpy as np
 from torch.utils.tensorboard import SummaryWriter
@@ -9,7 +10,7 @@ from utils.matd3_attention import MATD3
 from gym_pybullet_drones.envs.C3V1 import C3V1
 from gym_pybullet_drones.utils.enums import ObservationType, ActionType
 
-Env_name = 'c3v1'  # 'spread3d', 'simple_spread'
+Env_name = 'c3v1A'  # 'spread3d', 'simple_spread'
 action = 'vel'
 observation = 'kin_target'  # 相比kin_target 观测会多一个Fs
 
@@ -25,7 +26,7 @@ class Runner:
         self.load_mark = None
         self.args.share_prob = 0.05  # 还是别共享了，有些无用
         Ctrl_Freq = args.Ctrl_Freq  # 30
-        self.env = C3V1(gui=True, num_drones=args.N_drones, obs=ObservationType(observation),
+        self.env = C3V1(gui=False, num_drones=args.N_drones, obs=ObservationType(observation),
                         act=ActionType(action),
                         ctrl_freq=Ctrl_Freq,  # 这个值越大，仿真看起来越慢，应该是由于频率变高，速度调整的更小了
                         need_target=True, obs_with_act=True)
@@ -132,7 +133,23 @@ class Runner:
                                               agent_id)
 
 
+def check_create_dir(env_name, model_dir):
+    # 检查model文件夹是否存在
+    if not os.path.exists(model_dir):
+        os.makedirs(model_dir)
+
+    # 检查c3v1A文件夹是否存在
+    folder_path = os.path.join(model_dir, env_name)
+    if os.path.exists(folder_path):
+        pass
+        # 当前文件夹存在
+    else:
+        os.makedirs(folder_path)
+        print(f'创建文件夹: {folder_path}')
+
+
 if __name__ == '__main__':
+    check_create_dir(Env_name, 'model')
     parser = argparse.ArgumentParser("Hyperparameters Setting for MADDPG and MATD3 in MPE environment")
     parser.add_argument("--max_train_steps", type=int, default=int(1e6), help=" Maximum number of training steps")
     parser.add_argument("--episode_limit", type=int, default=1500, help="Maximum number of steps per episode")

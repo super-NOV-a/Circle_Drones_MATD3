@@ -279,16 +279,22 @@ class CircleRLCameraAviary(CircleBaseCameraAviary):
         safe_penalty = 0
         if pos[0] < -2 and v_unit_vector[0] < 0:  # 限制x轴位置
             v_unit_vector[0] = 0.5
-            safe_penalty += 20
+            safe_penalty += 10
         elif pos[0] > 2 and v_unit_vector[0] > 0:
             v_unit_vector[0] = -0.5
-            safe_penalty += 20
+            safe_penalty += 10
         if pos[1] < -2 and v_unit_vector[1] < 0:  # 限制y轴位置
             v_unit_vector[1] = 0.5
-            safe_penalty += 20
+            safe_penalty += 10
         elif pos[1] > 2 and v_unit_vector[1] > 0:
             v_unit_vector[1] = -0.5
-            safe_penalty += 20
+            safe_penalty += 10
+        if pos[2] < -2 and v_unit_vector[2] < 0:  # 限制y轴位置
+            v_unit_vector[2] = 0.5
+            safe_penalty += 10
+        elif pos[2] > 2 and v_unit_vector[2] > 0:
+            v_unit_vector[2] = -0.5
+            safe_penalty += 10
         return safe_penalty, v_unit_vector
 
     def map_action_to_movement(self, action_id, current_yaw):

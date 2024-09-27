@@ -195,7 +195,7 @@ class C3V1BaseAviary(gym.Env):
         if initial_xyzs is None:
             # 0.8:9个随机cell位置，1.0: 16个，1.3: 25个，1.5: 36个,1.8: 49个,2.0: 64个
             self.cell_pos = generate_non_overlapping_positions_numpy(2)
-            pprint(self.cell_pos)
+            # pprint(self.cell_pos)
             # 若需要，同时给定目标位置
             self.need_target = need_target
             self.INIT_XYZS, self.TARGET_POS, self.END_Target = self.get_init()
@@ -236,16 +236,18 @@ class C3V1BaseAviary(gym.Env):
             return init_pos
 
     def show_target(self):
-            self.target_id = p.loadURDF("D:\\1codes\\Circle_Drones_MATD3\\gym_pybullet_drones\\assets\\box.urdf",
-                                        self.TARGET_POS,
-                                        p.getQuaternionFromEuler([0, 0, 0]), physicsClientId=self.CLIENT,
-                                        useFixedBase=True)
-            # 设置模型无重力
-            p.changeDynamics(self.target_id, -1, mass=0)  # 将质量设为零，即设置无重力
-            p.changeDynamics(self.target_id, -1, linearDamping=0, angularDamping=0)  # 设置运动类型为静态
-            # 设置模型不受其他碰撞影响
-            p.setCollisionFilterGroupMask(self.target_id, -1, 0, 0)  # 设置碰撞组掩码
-            p.setCollisionFilterPair(-1, -1, self.target_id, -1, 0)  # 设置碰撞对，使模型不与其他对象发生碰撞
+        current_dir = os.path.dirname(__file__)
+        target_urdf_path = os.path.join(current_dir, '..', 'assets', 'cf2p.urdf')
+        self.target_id = p.loadURDF(target_urdf_path,
+                                    self.TARGET_POS,
+                                    p.getQuaternionFromEuler([0, 0, 0]), physicsClientId=self.CLIENT,
+                                    useFixedBase=True)
+        # 设置模型无重力
+        p.changeDynamics(self.target_id, -1, mass=0)  # 将质量设为零，即设置无重力
+        p.changeDynamics(self.target_id, -1, linearDamping=0, angularDamping=0)  # 设置运动类型为静态
+        # 设置模型不受其他碰撞影响
+        p.setCollisionFilterGroupMask(self.target_id, -1, 0, 0)  # 设置碰撞组掩码
+        p.setCollisionFilterPair(-1, -1, self.target_id, -1, 0)  # 设置碰撞对，使模型不与其他对象发生碰撞
 
     def get_new_target_position(self):
         # 计算半圆轨迹上的点
@@ -389,7 +391,8 @@ class C3V1BaseAviary(gym.Env):
                                                           physicsClientId=self.CLIENT
                                                           ) for i in range(self.NUM_DRONES)]
         else:
-            clipped_action = np.reshape(self._preprocessAction(action), (self.NUM_DRONES, 4))
+            clipped_action, safe_penalty = self._preprocessAction(action)
+            # clipped_action = np.reshape(clip_action, (self.NUM_DRONES, 4))
 
         for STEP in range(self.PYB_STEPS_PER_CTRL):
             if self.PYB_STEPS_PER_CTRL > 1 and self.PHYSICS in [Physics.DYN, Physics.PYB_GND, Physics.PYB_DRAG,
@@ -413,7 +416,7 @@ class C3V1BaseAviary(gym.Env):
         truncated = self._computeTruncated()
         info = self._computeInfo()
         self.step_counter += (1 * self.PYB_STEPS_PER_CTRL)
-        adjusted_rewards = [reward - 1 * p for reward, p in zip(rewards, punish)]
+        adjusted_rewards = [reward-p1-p2 for reward, p1, p2 in zip(rewards, punish, safe_penalty)]
 
         return obs, adjusted_rewards, terminated, truncated, info
 
@@ -1130,16 +1133,6 @@ class C3V1BaseAviary(gym.Env):
     def _preprocessAction(self,
                           action
                           ):
-        """Pre-processes the action passed to `.step()` into motors' RPMs.
-
-        Must be implemented in a subclass.
-
-        Parameters
-        ----------
-        action : ndarray | dict[..]
-            The input action for one or more drones, to be translated into RPMs.
-
-        """
         raise NotImplementedError
 
     ################################################################################

@@ -274,8 +274,10 @@ class CircleBaseAviary(gym.Env):
             return init_pos
 
     def show_target(self):
+        current_dir = os.path.dirname(__file__)
+        target_urdf_path = os.path.join(current_dir, '..', 'assets', 'cf2p.urdf')
         for i in range(self.NUM_DRONES):
-            self.target_id = p.loadURDF("D:\\1codes\\Circle_Drones_MATD3\\gym_pybullet_drones\\assets\\box.urdf",
+            self.target_id = p.loadURDF(target_urdf_path,
                                         self.TARGET_POS[i],
                                         p.getQuaternionFromEuler([0, 0, 0]), physicsClientId=self.CLIENT,
                                         useFixedBase=True)

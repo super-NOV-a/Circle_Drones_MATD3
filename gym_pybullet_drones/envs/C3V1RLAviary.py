@@ -164,53 +164,18 @@ class C3V1RLAviary(C3V1BaseAviary):
     ################################################################################
 
     def _preprocessAction(self, action):
-        """Pre-processes the action passed to `.step()` into motors' RPMs.
-
-        Parameter `action` is processed differently for each of the different
-        action types: the input to n-th drone, `action[n]` can be of length
-        1, 3, or 4, and represent RPMs, desired thrust and torques, or the next
-        target position to reach using PID control.
-
-        Parameters
-        ----------
-        action : ndarray
-            The input action for each drone, to be translated into RPMs.
-
-        Returns
-        -------
-        ndarray
-            (NUM_DRONES, 4)-shaped array of ints containing to clipped RPMs
-            commanded to the 4 motors of each drone.
-
-        """
         self.action_buffer.append(action)
         rpm = np.zeros((self.NUM_DRONES, 4))  # 最终计算结果为rpm
+        penalty = np.zeros(self.NUM_DRONES)
         for k in range(self.NUM_DRONES):  # 第 k 架drones
             target = action[k]  # 动作直接作为各个方法的目标
-            if self.ACT_TYPE == ActionType.RPM:
-                rpm[k, :] = np.array(self.HOVER_RPM * (1 + 0.05 * target))
-            elif self.ACT_TYPE == ActionType.PID:
-                state = self._getDroneStateVector(k)
-                next_pos = self._calculateNextStep(
-                    current_position=state['pos'],
-                    destination=target,
-                    step_size=1,
-                )
-                rpm_k, _, _ = self.ctrl[k].computeControl(
-                    control_timestep=self.CTRL_TIMESTEP,  # 1/Ctrl_freq=0.001 s
-                    cur_pos=state['pos'],
-                    cur_quat=state['quat'],
-                    cur_vel=state['vel'],
-                    cur_ang_vel=state['ang_vel'],
-                    target_pos=next_pos
-                )
-                rpm[k, :] = rpm_k
-            elif self.ACT_TYPE == ActionType.VEL:
+            if self.ACT_TYPE == ActionType.VEL:
                 state = self._getDroneStateVector(k, True)
                 if np.linalg.norm(target[0:3]) != 0:
                     v_unit_vector = target[0:3] / np.linalg.norm(target[0:3])
                 else:
                     v_unit_vector = np.zeros(3)
+                penalty[k], v_unit_vector = self.enforce_altitude_limits(state['pos'], v_unit_vector)
                 temp, _, _ = self.ctrl[k].computeControl(
                     control_timestep=self.CTRL_TIMESTEP,
                     cur_pos=state['pos'],
@@ -223,78 +188,32 @@ class C3V1RLAviary(C3V1BaseAviary):
                     # target the desired velocity vector
                 )
                 rpm[k, :] = temp
-            elif self.ACT_TYPE == ActionType.ONE_D_RPM:
-                rpm[k, :] = np.repeat(self.HOVER_RPM * (1 + 0.05 * target), 4)
-            elif self.ACT_TYPE == ActionType.ONE_D_PID:
-                state = self._getDroneStateVector(k)
-                res, _, _ = self.ctrl[k].computeControl(
-                    control_timestep=self.CTRL_TIMESTEP,
-                    cur_pos=state['pos'],
-                    cur_quat=state['quat'],
-                    cur_vel=state['vel'],
-                    cur_ang_vel=state['ang_vel'],
-                    target_pos=state['pos'] + 0.1 * np.array([0, 0, target[0]])
-                )
-                rpm[k, :] = res
-            elif self.ACT_TYPE == ActionType.MIXED:
-                cont_action = action[k][0]
-                discrete_action = action[k][1]
-
-                target = cont_action  # 连续动作的目标
-                if discrete_action == 0:    # 处理离散动作部分
-                    target = np.zeros_like(target)  # 保持静止
-
-                state = self._getDroneStateVector(k, True)
-                if np.linalg.norm(target[0:3]) != 0:
-                    v_unit_vector = target[0:3] / np.linalg.norm(target[0:3])
-                else:
-                    v_unit_vector = np.zeros(3)
-                temp, _, _ = self.ctrl[k].computeControl(control_timestep=self.CTRL_TIMESTEP,
-                                                         cur_pos=state['pos'],
-                                                         cur_quat=state['quat'],
-                                                         cur_vel=state['vel'],
-                                                         cur_ang_vel=state['ang_vel'],
-                                                         target_pos=state['pos'],  # same as the current position
-                                                         target_rpy=np.array([0, 0, state['rpy'][2]]),  # keep current yaw
-                                                         target_vel=self.SPEED_LIMIT * np.abs(target[3]) * v_unit_vector
-                                                         # target the desired velocity vector
-                                                         )
-                rpm[k, :] = temp
             else:
                 print("[ERROR] _preprocessAction()")
                 exit()
-        return rpm
+        return rpm, penalty
 
-    def try_mixed(self, action):    # 仅测试一个
-        rpm = np.zeros((self.NUM_DRONES, 4))  # 最终计算结果为rpm
-
-        if self.ACT_TYPE == ActionType.MIXED:
-            cont_action = action[0]
-            discrete_action = action[1]
-            target = cont_action  # 连续动作的目标
-            # 处理离散动作部分
-            if discrete_action == 0:
-                # 保持静止
-                target = np.zeros_like(target)
-
-            state = self._getDroneStateVector(0, True)
-            if np.linalg.norm(target[0:3]) != 0:
-                v_unit_vector = target[0:3] / np.linalg.norm(target[0:3])
-            else:
-                v_unit_vector = np.zeros(3)
-            temp, _, _ = self.ctrl[0].computeControl(control_timestep=self.CTRL_TIMESTEP,
-                                                     cur_pos=state['pos'],
-                                                     cur_quat=state['quat'],
-                                                     cur_vel=state['vel'],
-                                                     cur_ang_vel=state['ang_vel'],
-                                                     target_pos=state['pos'],  # same as the current position
-                                                     target_rpy=np.array([0, 0, state['rpy'][2]]),
-                                                     # keep current yaw
-                                                     target_vel=self.SPEED_LIMIT * np.linalg.norm(target) * v_unit_vector
-                                                     # target the desired velocity vector
-                                                     )
-            rpm[0, :] = temp
-        return rpm
+    def enforce_altitude_limits(self, pos, v_unit_vector):
+        safe_penalty = 0
+        if pos[0] < -3 and v_unit_vector[0] < 0:  # 限制x轴位置
+            v_unit_vector[0] = 0.2
+            safe_penalty += 5
+        elif pos[0] > 3 and v_unit_vector[0] > 0:
+            v_unit_vector[0] = -0.2
+            safe_penalty += 5
+        if pos[1] < -3 and v_unit_vector[1] < 0:  # 限制y轴位置
+            v_unit_vector[1] = 0.2
+            safe_penalty += 5
+        elif pos[1] > 3 and v_unit_vector[1] > 0:
+            v_unit_vector[1] = -0.2
+            safe_penalty += 5
+        if pos[2] < 0 and v_unit_vector[2] < 0:  # 限制y轴位置
+            v_unit_vector[2] = 0.2
+            safe_penalty += 5
+        elif pos[2] > 3 and v_unit_vector[2] > 0:
+            v_unit_vector[2] = -0.2
+            safe_penalty += 5
+        return safe_penalty, v_unit_vector
     ################################################################################
 
     def _observationSpace(self, Obs_act=False):

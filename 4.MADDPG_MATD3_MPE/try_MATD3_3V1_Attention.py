@@ -1,6 +1,5 @@
 import os
 import time
-
 import torch
 import numpy as np
 import argparse
@@ -22,7 +21,7 @@ class Runner:
         self.number = 3  #
         self.seed = 1145  # 保证一个seed，名称使用记号--mark
         self.mark = 9104  # todo 指定mark
-        Load_Steps = 10000000  # self.args.max_train_steps = 1e6
+        Load_Steps = 6000000  # self.args.max_train_steps = 1e6
         Ctrl_Freq = 30  #
         self.test_times = 3
         # Create env
