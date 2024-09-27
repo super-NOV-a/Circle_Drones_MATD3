@@ -21,12 +21,12 @@ class Runner:
         self.env_name = Env_name
         self.number = 3  #
         self.seed = 1145  # 保证一个seed，名称使用记号--mark
-        self.mark = 9027  # todo 指定mark
-        Load_Steps = 9000000  # self.args.max_train_steps = 1e6
+        self.mark = 9104  # todo 指定mark
+        Load_Steps = 6000000  # self.args.max_train_steps = 1e6
         Ctrl_Freq = 30  #
         self.test_times = 3
         # Create env
-        self.env_evaluate = CircleSpreadAviary(gui=True, num_drones=args.N_drones, obs=ObservationType('kin_target_po'),
+        self.env_evaluate = CircleSpreadAviary(gui=True, num_drones=args.N_drones, obs=ObservationType('kin_target'),
                                                act=ActionType(action),
                                                ctrl_freq=Ctrl_Freq,  # 这个值越大，仿真看起来越慢，应该是由于频率变高，速度调整的更小了
                                                need_target=True, obs_with_act=True)
@@ -59,13 +59,13 @@ class Runner:
                                                                                               self.mark, self.number,
                                                                                               int(Load_Steps / 1000),
                                                                                               agent_id)  # agent_id
-            if agent_id == 1:   # 效果不好的模型换掉
-                model_path = "./model/{}/{}_actor_mark_{}_number_{}_step_{}k_agent_{}.pth".format(self.env_name,
-                                                                                                  self.args.algorithm,
-                                                                                                  self.mark,
-                                                                                                  self.number,
-                                                                                                  int(Load_Steps / 1000),
-                                                                                                  agent_id-1)  # agent_id
+            # if agent_id == 1:   # 效果不好的模型换掉
+            #     model_path = "./model/{}/{}_actor_mark_{}_number_{}_step_{}k_agent_{}.pth".format(self.env_name,
+            #                                                                                       self.args.algorithm,
+            #                                                                                       self.mark,
+            #                                                                                       self.number,
+            #                                                                                       int(Load_Steps / 1000),
+            #                                                                                       agent_id-1)  # agent_id
             self.agent_n[agent_id].actor.load_state_dict(torch.load(model_path))
         self.evaluate_rewards = []  # Record the rewards during the evaluating
         self.noise_std = self.args.noise_std_init  # Initialize noise_std
