@@ -54,13 +54,9 @@ class C3V1(C3V1RLAviary):
         """
         states = {i: self._getDroneStateVector(i, with_target=True) for i in range(self.NUM_DRONES)}
         rewards = [0 for _ in range(self.NUM_DRONES)]
-
-        # 计算目标点距离
         dis_to_target = np.array([states[idx]['target_pos_dis'] for idx in range(self.NUM_DRONES)])     # 4
         velocity = np.array([states[idx]['vel'] for idx in range(self.NUM_DRONES)])     # 3
         v = np.array([np.linalg.norm(states[idx]['vel']) for idx in range(self.NUM_DRONES)])
-
-        # 为每个无人机计算奖励
         for i in range(self.NUM_DRONES):
             # 鼓励在目标附近的小范围内移动
             rewards[i] += 10*pow(20, -dis_to_target[i][-1])  # 使用指数函数计算距离奖励 10*20^{-x}
@@ -82,29 +78,21 @@ class C3V1(C3V1RLAviary):
 
     ################################################################################
     def _computeTerminated(self):
-
         dones = [False for _ in range(self.NUM_DRONES)]
         punish = [0.0 for _ in range(self.NUM_DRONES)]  # Use a floating-point value for dynamic punish
-
         for i in range(self.NUM_DRONES):
             state = self._getDroneStateVector(i, True)
             x, y, z = state['pos']
             dis = state['target_pos_dis'][3]
             roll, pitch, _ = state['rpy']
 
-            if dis < 0.1:
-                dones[i] = True
-                punish[i] -= 8000
-            # 检查出界
-            if z > 4 or z < 0 or dis > 10:
+            if dis < 0.12:
+                # dones[i] = True
+                punish[i] -= 20
+            if z > 4 or z < 0 or dis > 10:  # 检查出界
                 punish[i] = 10
-
-            # 姿态惩罚
-            if abs(roll) > 0.4 or abs(pitch) > 0.4:
+            if abs(roll) > 0.4 or abs(pitch) > 0.4:     # 姿态惩罚
                 punish[i] = max(punish[i], 1)   # 未出界但是姿态不稳定
-
-        # if self.step_counter / self.PYB_FREQ > self.EPISODE_LEN_SEC:    # step_counter 最大是8 * 1000（看设置的）
-        #     dones = [True for _ in range(self.NUM_DRONES)]
         return dones, punish
 
     ################################################################################

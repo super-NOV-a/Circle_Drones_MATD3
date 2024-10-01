@@ -105,7 +105,7 @@ class Runner:
                     self.save_model()  # 评估中实现save了
                     obs_n, _ = self.env.reset()  # gym new api
 
-                if any(done_n):
+                if all(done_n):
                     break
 
             if self.replay_buffer.current_size > self.args.batch_size:

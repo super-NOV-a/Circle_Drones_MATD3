@@ -87,22 +87,22 @@ class C3V1BaseAviary(gym.Env):
         self.OUTPUT_FOLDER = output_folder
         #### Load the drone properties from the .urdf file #########
         self.M, \
-        self.L, \
-        self.THRUST2WEIGHT_RATIO, \
-        self.J, \
-        self.J_INV, \
-        self.KF, \
-        self.KM, \
-        self.COLLISION_H, \
-        self.COLLISION_R, \
-        self.COLLISION_Z_OFFSET, \
-        self.MAX_SPEED_KMH, \
-        self.GND_EFF_COEFF, \
-        self.PROP_RADIUS, \
-        self.DRAG_COEFF, \
-        self.DW_COEFF_1, \
-        self.DW_COEFF_2, \
-        self.DW_COEFF_3 = self._parseURDFParameters()
+            self.L, \
+            self.THRUST2WEIGHT_RATIO, \
+            self.J, \
+            self.J_INV, \
+            self.KF, \
+            self.KM, \
+            self.COLLISION_H, \
+            self.COLLISION_R, \
+            self.COLLISION_Z_OFFSET, \
+            self.MAX_SPEED_KMH, \
+            self.GND_EFF_COEFF, \
+            self.PROP_RADIUS, \
+            self.DRAG_COEFF, \
+            self.DW_COEFF_1, \
+            self.DW_COEFF_2, \
+            self.DW_COEFF_3 = self._parseURDFParameters()
         print(
             "[INFO] BaseAviary.__init__() loaded parameters from the drone's .urdf:\n[INFO] m {:f}, L {:f},\n[INFO] ixx {:f}, iyy {:f}, izz {:f},\n[INFO] kf {:f}, km {:f},\n[INFO] t2w {:f}, max_speed_kmh {:f},\n[INFO] gnd_eff_coeff {:f}, prop_radius {:f},\n[INFO] drag_xy_coeff {:f}, drag_z_coeff {:f},\n[INFO] dw_coeff_1 {:f}, dw_coeff_2 {:f}, dw_coeff_3 {:f}".format(
                 self.M, self.L, self.J[0, 0], self.J[1, 1], self.J[2, 2], self.KF, self.KM, self.THRUST2WEIGHT_RATIO,
@@ -210,13 +210,11 @@ class C3V1BaseAviary(gym.Env):
             self.INIT_RPYS = initial_rpys
         else:
             print("[ERROR] invalid initial_rpys in BaseAviary.__init__(), try initial_rpys.reshape(NUM_DRONES,3)")
-        if self.need_target:
-            self.show_target()
         #### Create action and observation spaces ##################
         self.action_space = self._actionSpace()
         self.observation_space = self._observationSpace(obs_with_act)
         #### Housekeeping ##########################################
-        self._housekeeping()
+        self._housekeeping()  # 状态归零，模型重导入
         #### Update and store the drones kinematic information #####
         self._updateAndStoreKinematicInformation()
         #### Start video recording #################################
@@ -229,7 +227,7 @@ class C3V1BaseAviary(gym.Env):
         """
         if self.need_target:
             init_pos = np.stack(random.sample(self.cell_pos, 2 + self.NUM_DRONES))
-            return init_pos[:self.NUM_DRONES], init_pos[self.NUM_DRONES], init_pos[self.NUM_DRONES+1]
+            return init_pos[:self.NUM_DRONES], init_pos[self.NUM_DRONES], init_pos[self.NUM_DRONES + 1]
         else:
             init_pos = np.stack(random.sample(self.cell_pos, self.NUM_DRONES))
             # init_pos = np.array([[1, 1, 1], [-1, -1, 0], [1, -1, 1]])
@@ -238,26 +236,35 @@ class C3V1BaseAviary(gym.Env):
     def show_target(self):
         current_dir = os.path.dirname(__file__)
         target_urdf_path = os.path.join(current_dir, '..', 'assets', 'cf2p.urdf')
-        self.target_id = p.loadURDF(target_urdf_path,
-                                    self.TARGET_POS,
-                                    p.getQuaternionFromEuler([0, 0, 0]), physicsClientId=self.CLIENT,
-                                    useFixedBase=True)
-        # 设置模型无重力
-        p.changeDynamics(self.target_id, -1, mass=0)  # 将质量设为零，即设置无重力
-        p.changeDynamics(self.target_id, -1, linearDamping=0, angularDamping=0)  # 设置运动类型为静态
-        # 设置模型不受其他碰撞影响
-        p.setCollisionFilterGroupMask(self.target_id, -1, 0, 0)  # 设置碰撞组掩码
-        p.setCollisionFilterPair(-1, -1, self.target_id, -1, 0)  # 设置碰撞对，使模型不与其他对象发生碰撞
+        self.TARGET_ID = p.loadURDF(target_urdf_path,
+                                    self.INIT_Target,
+                                    p.getQuaternionFromEuler([0, 0, 0]), physicsClientId=self.CLIENT)
+        # 禁用 self.target_id 的碰撞效果
+        p.setCollisionFilterGroupMask(self.TARGET_ID, -1, 0, 0)
+        # 设置其他模型与 self.target_id 不发生碰撞
+        for model_id in self.DRONE_IDS:
+            p.setCollisionFilterPair(self.TARGET_ID, model_id, -1, -1, enableCollision=False)
 
-    def get_new_target_position(self):
-        # 计算半圆轨迹上的点
-        theta = np.pi * self.step_counter / 12000  # 从0到π  # 此处self.step_counter最大为8000
-        radius = np.linalg.norm(self.END_Target[:2] - self.INIT_Target[:2]) / 2  # 半径
-        center = (self.INIT_Target[:2] + self.END_Target[:2]) / 2  # 圆心
-        x = center[0] + radius * np.cos(theta)  # x坐标
-        y = center[1] + radius * np.sin(theta)  # y坐标
-        z = self.INIT_Target[2] + (self.END_Target[2] - self.INIT_Target[2]) * self.step_counter / 12000  # z坐标线性插值
-        return np.array([x, y, z])
+    def get_new_target_position(self, total_steps=12000):
+        # 计算圆心和半径
+        center = (self.INIT_Target[:2] + self.END_Target[:2]) / 2
+        radius = np.linalg.norm(self.INIT_Target[:2] - self.END_Target[:2]) / 2
+        # 计算角度范围，从 0 到 π
+        theta = np.pi * (self.step_counter / total_steps)
+        # 计算圆弧上的 x 和 y 坐标
+        x = radius * np.cos(theta)
+        y = radius * np.sin(theta)
+        z = self.INIT_Target[2] + (self.END_Target[2] - self.INIT_Target[2]) * (self.step_counter / total_steps)
+        # 计算旋转角度
+        angle = np.arctan2(self.INIT_Target[1] - self.END_Target[1], self.INIT_Target[0] - self.END_Target[0])
+        # 旋转矩阵
+        rotation_matrix = np.array([[np.cos(angle), -np.sin(angle)],
+                                    [np.sin(angle), np.cos(angle)]])
+        # 旋转并平移圆弧上的点
+        arc_point_2d = np.dot(rotation_matrix, np.array([x, y]))
+        arc_point_2d[0] += center[0]
+        arc_point_2d[1] += center[1]
+        return np.array([arc_point_2d[0], arc_point_2d[1], z])
 
     def update_target_pos(self):
         """
@@ -266,7 +273,8 @@ class C3V1BaseAviary(gym.Env):
         :return:
         """
         self.TARGET_POS = self.get_new_target_position()
-        p.resetBasePositionAndOrientation(self.target_id, self.TARGET_POS, p.getQuaternionFromEuler([0, 0, 0]))
+        return self.TARGET_POS
+        # p.resetBasePositionAndOrientation(self.TARGET_ID, self.TARGET_POS, p.getQuaternionFromEuler([0, 0, 0]))
 
     def convert_obs_dict_to_array(self, obs_dict, if_PO):
         obs_array = []
@@ -311,9 +319,7 @@ class C3V1BaseAviary(gym.Env):
         self._housekeeping()
         #### Update and store the drones kinematic information #####
         self._updateAndStoreKinematicInformation()
-        ####  给定目标位置在 _housekeeping中 ###########################################
-        if self.need_target:
-            self.show_target()
+        ####  给定目标位置与设置目标碰撞在 _housekeeping中 ###########################################
         #### Start video recording #################################
         self._startVideoRecording()
         #### Return the initial observation ########################
@@ -392,6 +398,8 @@ class C3V1BaseAviary(gym.Env):
                                                           ) for i in range(self.NUM_DRONES)]
         else:
             clipped_action, safe_penalty = self._preprocessAction(action)
+            next_target_pos = self.update_target_pos()
+            target_action = self._preprocessTargetAction(next_target_pos)
             # clipped_action = np.reshape(clip_action, (self.NUM_DRONES, 4))
 
         for STEP in range(self.PYB_STEPS_PER_CTRL):
@@ -401,14 +409,12 @@ class C3V1BaseAviary(gym.Env):
 
             for i in range(self.NUM_DRONES):
                 self.apply_physics(clipped_action[i, :], i)
-
+            self._target_physics(target_action[0, :])
             if self.PHYSICS != Physics.DYN:
                 p.stepSimulation(physicsClientId=self.CLIENT)
             self.last_clipped_action = clipped_action
 
         self._updateAndStoreKinematicInformation()
-        if self.need_target:
-            self.update_target_pos()
         _obs, if_po = self._computeObs()  # 是否
         obs = self.to_array_obs(_obs, if_po)
         rewards = self._computeReward()
@@ -416,7 +422,7 @@ class C3V1BaseAviary(gym.Env):
         truncated = self._computeTruncated()
         info = self._computeInfo()
         self.step_counter += (1 * self.PYB_STEPS_PER_CTRL)
-        adjusted_rewards = [reward-p1-p2 for reward, p1, p2 in zip(rewards, punish, safe_penalty)]
+        adjusted_rewards = [reward - p1 - p2 for reward, p1, p2 in zip(rewards, punish, safe_penalty)]
 
         return obs, adjusted_rewards, terminated, truncated, info
 
@@ -539,6 +545,12 @@ class C3V1BaseAviary(gym.Env):
         self.ang_v = np.zeros((self.NUM_DRONES, 3))
         if self.PHYSICS == Physics.DYN:
             self.rpy_rates = np.zeros((self.NUM_DRONES, 3))
+        #### 初始化Traget信息!! ##########   先假设只有一个目标
+        self.t_pos = np.zeros((1, 3))
+        self.t_quat = np.zeros((1, 4))
+        self.t_rpy = np.zeros((1, 3))
+        self.t_vel = np.zeros((1, 3))
+        self.t_ang_v = np.zeros((1, 3))
         #### Set PyBullet's parameters #############################
         p.setGravity(0, 0, -self.G, physicsClientId=self.CLIENT)
         p.setRealTimeSimulation(0, physicsClientId=self.CLIENT)
@@ -571,6 +583,8 @@ class C3V1BaseAviary(gym.Env):
                                      linkIndexB=-1, enableCollision=0, physicsClientId=self.CLIENT)
         if self.OBSTACLES:
             self._addObstacles()
+        if self.need_target:
+            self.show_target()
 
     ################################################################################
 
@@ -585,6 +599,9 @@ class C3V1BaseAviary(gym.Env):
             self.pos[i], self.quat[i] = p.getBasePositionAndOrientation(self.DRONE_IDS[i], physicsClientId=self.CLIENT)
             self.rpy[i] = p.getEulerFromQuaternion(self.quat[i])
             self.vel[i], self.ang_v[i] = p.getBaseVelocity(self.DRONE_IDS[i], physicsClientId=self.CLIENT)
+        self.t_pos[0], self.t_quat[0] = p.getBasePositionAndOrientation(self.TARGET_ID, physicsClientId=self.CLIENT)
+        self.t_rpy[0] = p.getEulerFromQuaternion(self.t_quat[0])
+        self.t_vel[0], self.t_ang_v[0] = p.getBaseVelocity(self.TARGET_ID, physicsClientId=self.CLIENT)
 
     ################################################################################
 
@@ -787,6 +804,29 @@ class C3V1BaseAviary(gym.Env):
                                  physicsClientId=self.CLIENT
                                  )
         p.applyExternalTorque(self.DRONE_IDS[nth_drone],
+                              4,
+                              torqueObj=[0, 0, z_torque],
+                              flags=p.LINK_FRAME,
+                              physicsClientId=self.CLIENT
+                              )
+
+    def _target_physics(self,
+                        rpm
+                        ):
+        forces = np.array(rpm ** 2) * self.KF
+        torques = np.array(rpm ** 2) * self.KM
+        if self.DRONE_MODEL == DroneModel.RACE:
+            torques = -torques
+        z_torque = (-torques[0] + torques[1] - torques[2] + torques[3])
+        for i in range(4):
+            p.applyExternalForce(self.TARGET_ID,
+                                 i,
+                                 forceObj=[0, 0, forces[i]],
+                                 posObj=[0, 0, 0],
+                                 flags=p.LINK_FRAME,
+                                 physicsClientId=self.CLIENT
+                                 )
+        p.applyExternalTorque(self.TARGET_ID,
                               4,
                               torqueObj=[0, 0, z_torque],
                               flags=p.LINK_FRAME,
@@ -1096,7 +1136,7 @@ class C3V1BaseAviary(gym.Env):
         DW_COEFF_2 = float(URDF_TREE[0].attrib['dw_coeff_2'])
         DW_COEFF_3 = float(URDF_TREE[0].attrib['dw_coeff_3'])
         return M, L, THRUST2WEIGHT_RATIO, J, J_INV, KF, KM, COLLISION_H, COLLISION_R, COLLISION_Z_OFFSET, MAX_SPEED_KMH, \
-               GND_EFF_COEFF, PROP_RADIUS, DRAG_COEFF, DW_COEFF_1, DW_COEFF_2, DW_COEFF_3
+            GND_EFF_COEFF, PROP_RADIUS, DRAG_COEFF, DW_COEFF_1, DW_COEFF_2, DW_COEFF_3
 
     ################################################################################
 
@@ -1133,6 +1173,11 @@ class C3V1BaseAviary(gym.Env):
     def _preprocessAction(self,
                           action
                           ):
+        raise NotImplementedError
+
+    def _preprocessTargetAction(self,
+                                action
+                                ):
         raise NotImplementedError
 
     ################################################################################

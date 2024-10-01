@@ -76,6 +76,7 @@ class C3V1RLAviary(C3V1BaseAviary):
             os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
             if drone_model in [DroneModel.CF2X, DroneModel.CF2P]:
                 self.ctrl = [DSLPIDControl(drone_model=DroneModel.CF2X) for i in range(num_drones)]
+                self.t_ctrl = [DSLPIDControl(drone_model=DroneModel.CF2P)]
             else:
                 print("[ERROR] in LyyRLAviary.__init()__, no controller is available for the specified drone_model")
         super().__init__(drone_model=drone_model,
@@ -192,6 +193,21 @@ class C3V1RLAviary(C3V1BaseAviary):
                 print("[ERROR] _preprocessAction()")
                 exit()
         return rpm, penalty
+
+    def _preprocessTargetAction(self, action):  # 输入是下一步的目标位置
+        rpm = np.zeros((1, 4))  # 最终计算结果为rpm N*4
+        for k in range(1):  # 第 k 个目标
+            target = action  # 动作直接作为各个方法的目标
+            temp, _, _ = self.t_ctrl[k].computeControl(
+                control_timestep=self.CTRL_TIMESTEP,
+                cur_pos=self.t_pos[k],
+                cur_quat=self.t_quat[k],
+                cur_vel=self.t_vel[k],
+                cur_ang_vel=self.t_ang_v[k],
+                target_pos=(target + self.t_pos[k])/2,  # same as the current position
+            )
+            rpm[k, :] = temp
+        return rpm
 
     def enforce_altitude_limits(self, pos, v_unit_vector):
         safe_penalty = 0

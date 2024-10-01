@@ -5,7 +5,7 @@ import numpy as np
 import argparse
 from utils.matd3 import MATD3
 import copy
-from gym_pybullet_drones.envs.CircleSpread import CircleSpreadAviary
+from gym_pybullet_drones.envs.C3V1 import C3V1
 from gym_pybullet_drones.utils.enums import ObservationType, ActionType
 import matplotlib.pyplot as plt
 
@@ -21,23 +21,20 @@ class Runner:
         self.number = 3  #
         self.seed = 1145  # 保证一个seed，名称使用记号--mark
         self.mark = 9104  # todo 指定mark
-        Load_Steps = 6000000  # self.args.max_train_steps = 1e6
-        Ctrl_Freq = 30  #
+        Load_Steps = 10000000  # self.args.max_train_steps = 1e6
         self.test_times = 3
         # Create env
-        self.env_evaluate = CircleSpreadAviary(gui=True, num_drones=args.N_drones, obs=ObservationType('kin_target'),
-                                               act=ActionType(action),
-                                               ctrl_freq=Ctrl_Freq,  # 这个值越大，仿真看起来越慢，应该是由于频率变高，速度调整的更小了
-                                               need_target=True, obs_with_act=True)
-        self.timestep = 1 / Ctrl_Freq  # 计算每个步骤的时间间隔 0.003
+        self.env_evaluate = C3V1(gui=True, num_drones=args.N_drones, obs=ObservationType('kin_target'),
+                                 act=ActionType(action),
+                                 ctrl_freq=30,  # 这个值越大，仿真看起来越慢，应该是由于频率变高，速度调整的更小了
+                                 need_target=True, obs_with_act=True)
+        self.timestep = 1.0 / 30  # 计算每个步骤的时间间隔 0.003
 
         self.args.obs_dim_n = [self.env_evaluate.observation_space[i].shape[0] for i in
                                range(self.args.N_drones)]  # obs dimensions of N agents
         self.args.action_dim_n = [self.env_evaluate.action_space[i].shape[0] for i in
                                   range(self.args.N_drones)]  # actions dimensions of N agents
-        # print("observation_space=", self.env.observation_space)
         print("obs_dim_n={}".format(self.args.obs_dim_n))
-        # print("action_space=", self.env.action_space)
         print("action_dim_n={}".format(self.args.action_dim_n))
 
         # Set random seed
@@ -74,32 +71,6 @@ class Runner:
             self.evaluate_policy()
         self.env_evaluate.close()
 
-    def convert_obs_dict_to_array(self, obs_dict):
-        obs_array = []
-        if self.args.N_drones != 1:
-            for i in range(self.args.N_drones):
-                obs = obs_dict[i]
-                # action_buffer_flat = np.hstack(obs['action_buffer'])    # 拉成一维
-                obs_array.append(np.hstack([
-                    obs['pos'],
-                    obs['rpy'],
-                    obs['vel'],
-                    obs['ang_vel'],
-                    obs['target_pos'],
-                    obs['other_pos'],
-                    obs['last_action']
-                ]))
-        else:
-            pass
-        return np.array(obs_array).astype('float32')
-
-    def convert_wrap(self, obs_dict):
-        if isinstance(obs_dict, dict):
-            obs_dict = self.convert_obs_dict_to_array(obs_dict)
-        else:
-            obs_dict = obs_dict
-        return obs_dict
-
     def evaluate_policy(self):
         evaluate_reward = 0
         all_states = []
@@ -108,7 +79,6 @@ class Runner:
 
         for eval_time in range(self.args.evaluate_times):
             obs_n, _ = self.env_evaluate.reset()
-            obs_n = self.convert_wrap(obs_n)
             episode_return = [0 for _ in range(self.args.N_drones)]
             episode_states = []
             episode_actions = []
@@ -119,10 +89,9 @@ class Runner:
                 a_n = [agent.choose_action(obs, noise_std=0.005) for agent, obs in zip(self.agent_n, obs_n)]  # 不添加噪声
                 for i in range(self.args.N_drones):
                     if obs_n[i][15] <= 0.5:
-                        a_n[i][3] = 0.1 * a_n[i][3]   # 限制飞到周围后的速度，保证测试不乱飞（偷懒做法）
+                        a_n[i][3] = 0.1 * a_n[i][3]  # 限制飞到周围后的速度，保证测试不乱飞（偷懒做法）
                 time.sleep(0.01)
                 obs_next_n, r_n, done_n, _, _ = self.env_evaluate.step(copy.deepcopy(a_n))
-                obs_next_n = self.convert_wrap(obs_next_n)
                 for i in range(self.args.N_drones):
                     episode_return[i] += r_n[i]
 
@@ -168,26 +137,27 @@ class Runner:
         os.makedirs(save_dir, exist_ok=True)
 
         # 保存文件的路径
-        save_file_path = os.path.join(save_dir, "good_example.txt")
-
-        # 定义不同的颜色，用于区分目标点
-        colors = ['r', 'g', 'b']
+        save_file_path = os.path.join(save_dir, "c3v1_good_example.txt")
+        # 定义不同的颜色，用于区分目标点和无人机
+        colors = ['r', 'g', 'b', 'y']  # 三个无人机和一个目标位置
+        # 提取目标位置（第一个智能体的[:, 0, 3:6]）
+        target_positions = states[:, 0, 16:19] + states[:, 0, :3]
 
         # 打开文件以写入数据
         with open(save_file_path, 'w') as f:
             # 保存目标点数据
-            f.write("# Target Points\n")
-            for _id in range(self.args.N_drones):
-                target = self.env_evaluate.TARGET_POS[_id]
-                f.write(f"{_id}: {target[0]}, {target[1]}, {target[2]}\n")
-                # 使用不同的颜色绘制目标点
-                ax.scatter(target[0], target[1], target[2], color=colors[_id % len(colors)],
-                           s=100, marker='x', label=f'Target {_id}')
+            f.write("# Target Point (First Agent Target Position Over Time)\n")
+            for i in range(len(target_positions)):
+                f.write(f"{target_positions[i, 0]}, {target_positions[i, 1]}, {target_positions[i, 2]}\n")
 
-            # 保存智能体轨迹数据 TODO CHECK PATH
+            # 绘制目标点轨迹（目标位置曲线）
+            ax.plot(target_positions[:, 0], target_positions[:, 1], target_positions[:, 2],
+                    color=colors[3], label='Target Position', linestyle='--')
+
+            # 保存智能体轨迹数据
             f.write("\n# Agent Trajectories (x, y, z)\n")
             for agent_id in range(self.args.N_drones):
-                agent_states = states[:, agent_id, :3]  # 提取位置信息
+                agent_states = states[:, agent_id, :3]  # 提取无人机位置信息
                 agent_rewards = rewards[:, agent_id]
                 cmap = cmaps[agent_id % len(cmaps)]  # 循环使用渐变色
                 norm = norms[agent_id % len(norms)]
@@ -199,19 +169,21 @@ class Runner:
                 # 减少绘制点数
                 step_size = max(1, len(agent_states) // 500)  # 绘制最多 500 个点
 
-                # 绘制轨迹，根据奖励值调整颜色亮度
+                # 绘制无人机轨迹，根据奖励值调整颜色亮度
                 for i in range(0, len(agent_states) - 1, step_size):
                     color_intensity = norm(agent_rewards[i])
                     line_color = cmap(color_intensity)
                     ax.plot(agent_states[i:i + 2, 0], agent_states[i:i + 2, 1], agent_states[i:i + 2, 2],
-                            color=line_color)
+                            color=line_color, label=f'Agent {agent_id}' if i == 0 else "")
 
-        ax.set_title('Agent Positions and Actions Over Time')
+        # 设置标题和轴标签
+        ax.set_title('Agent and Target Positions Over Time')
         ax.set_xlabel('X')
         ax.set_ylabel('Y')
         ax.set_zlabel('Z')
         ax.legend()
 
+        # 调整布局并显示图像
         plt.tight_layout()
         plt.show()
 

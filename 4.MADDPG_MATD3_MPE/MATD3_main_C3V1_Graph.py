@@ -1,5 +1,4 @@
 import os
-import sys
 import torch
 import numpy as np
 from torch.utils.tensorboard import SummaryWriter
@@ -7,15 +6,13 @@ import argparse
 import copy
 from utils.replay_buffer import ReplayBuffer
 from utils.maddpg import MADDPG
-from utils.matd3_attention import MATD3     # todo 修改
-import copy
-from gym_pybullet_drones.envs.CircleSpread import CircleSpreadAviary
+from utils.matd3_graph import MATD3
+from gym_pybullet_drones.envs.C3V1 import C3V1
 from gym_pybullet_drones.utils.enums import ObservationType, ActionType
 
-Env_name = 'circleA'  # 'spread3d', 'simple_spread'
+Env_name = 'c3v1G'  # 'spread3d', 'simple_spread'
 action = 'vel'
-observation = 'kin_target'   # 相比kin_target 观测会多一个Fs
-#  此文件使用了师姐的Potential势能方法，从环境中计算势能用于更新Critic。 CircleSpread环境已经修改为返回值包含势能了
+observation = 'kin_target'  # 相比kin_target 观测会多一个Fs
 
 
 class Runner:
@@ -28,25 +25,23 @@ class Runner:
         self.mark = args.mark
         self.load_mark = None
         self.args.share_prob = 0.05  # 还是别共享了，有些无用
-        # Create env
-        if self.env_name == 'circleA':
-            Ctrl_Freq = args.Ctrl_Freq  # 30
-            self.env = CircleSpreadAviary(gui=False, num_drones=args.N_drones, obs=ObservationType(observation),
-                                          act=ActionType(action),
-                                          ctrl_freq=Ctrl_Freq,  # 这个值越大，仿真看起来越慢，应该是由于频率变高，速度调整的更小了
-                                          need_target=True, obs_with_act=True)
-            self.env_evaluate = CircleSpreadAviary(gui=False, num_drones=args.N_drones,
-                                                   obs=ObservationType(observation),
-                                                   act=ActionType(action),
-                                                   ctrl_freq=Ctrl_Freq,
-                                                   need_target=True, obs_with_act=True)
-            self.timestep = 1 / Ctrl_Freq  # 计算每个步骤的时间间隔 0.003
-            self.args.obs_dim_n = [self.env.observation_space[i].shape[0] for i in
-                                   range(self.args.N_drones)]  # obs dimensions of N agents
-            self.args.action_dim_n = [self.env.action_space[i].shape[0] for i in
-                                      range(self.args.N_drones)]  # actions dimensions of N agents
-            print(f"obs_dim_n={self.args.obs_dim_n}")
-            print(f"action_dim_n={self.args.action_dim_n}")
+        Ctrl_Freq = args.Ctrl_Freq  # 30
+        self.env = C3V1(gui=False, num_drones=args.N_drones, obs=ObservationType(observation),
+                        act=ActionType(action),
+                        ctrl_freq=Ctrl_Freq,  # 这个值越大，仿真看起来越慢，应该是由于频率变高，速度调整的更小了
+                        need_target=True, obs_with_act=True)
+        self.env_evaluate = C3V1(gui=False, num_drones=args.N_drones,
+                                 obs=ObservationType(observation),
+                                 act=ActionType(action),
+                                 ctrl_freq=Ctrl_Freq,
+                                 need_target=True, obs_with_act=True)
+        self.timestep = 1 / Ctrl_Freq  # 计算每个步骤的时间间隔 0.003
+        self.args.obs_dim_n = [self.env.observation_space[i].shape[0] for i in
+                               range(self.args.N_drones)]  # obs dimensions of N agents
+        self.args.action_dim_n = [self.env.action_space[i].shape[0] for i in
+                                  range(self.args.N_drones)]  # actions dimensions of N agents
+        print(f"obs_dim_n={self.args.obs_dim_n}")
+        print(f"action_dim_n={self.args.action_dim_n}")
 
         # Set random seed
         np.random.seed(self.seed)
@@ -110,7 +105,7 @@ class Runner:
                     self.save_model()  # 评估中实现save了
                     obs_n, _ = self.env.reset()  # gym new api
 
-                if any(done_n):
+                if all(done_n):
                     break
 
             if self.replay_buffer.current_size > self.args.batch_size:
@@ -130,31 +125,6 @@ class Runner:
 
         self.env.close()
         self.env_evaluate.close()
-
-    def evaluate_policy(self, ):
-        evaluate_reward = 0
-        for _ in range(self.args.evaluate_times):
-            obs_n, _ = self.env_evaluate.reset()
-            episode_reward = 0
-            a = self.agent_n[0].choose_action(obs_n[0], 0)
-            for _ in range(self.args.test_episode_limit):
-
-                a_n = [agent.choose_action(obs, noise_std=0) for agent, obs in
-                       zip(self.agent_n, obs_n)]  # We do not add noise when evaluating
-                obs_next_n, r_n, done_n, _, _ = self.env_evaluate.step(copy.deepcopy(a_n))
-                episode_reward += np.mean(r_n)  # 修改为均值
-                obs_n = obs_next_n
-
-                if all(done_n):
-                    break
-            evaluate_reward += episode_reward
-
-        evaluate_reward = evaluate_reward / self.args.evaluate_times
-        self.evaluate_rewards.append(evaluate_reward)
-        for agent_id in range(self.args.N_drones):
-            self.agent_n[agent_id].save_model(self.env_name, self.args.algorithm, self.mark, self.number,
-                                              self.total_steps,
-                                              agent_id)
 
     def save_model(self):
         for agent_id in range(self.args.N_drones):
@@ -182,8 +152,8 @@ if __name__ == '__main__':
     check_create_dir(Env_name, 'model')
     parser = argparse.ArgumentParser("Hyperparameters Setting for MADDPG and MATD3 in MPE environment")
     parser.add_argument("--max_train_steps", type=int, default=int(1e6), help=" Maximum number of training steps")
-    parser.add_argument("--episode_limit", type=int, default=1000, help="Maximum number of steps per episode")
-    parser.add_argument("--test_episode_limit", type=int, default=1000, help="Maximum number of steps per test episode")
+    parser.add_argument("--episode_limit", type=int, default=1500, help="Maximum number of steps per episode")
+    parser.add_argument("--test_episode_limit", type=int, default=1500, help="Maximum number of steps per test episode")
     parser.add_argument("--evaluate_freq", type=float, default=100000,
                         help="Evaluate the policy every 'evaluate_freq' steps")
     parser.add_argument("--evaluate_times", type=float, default=1, help="Evaluate times")

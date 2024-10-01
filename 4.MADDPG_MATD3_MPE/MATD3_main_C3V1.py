@@ -26,7 +26,7 @@ class Runner:
         self.load_mark = None
         self.args.share_prob = 0.05  # 还是别共享了，有些无用
         Ctrl_Freq = args.Ctrl_Freq  # 30
-        self.env = C3V1(gui=False, num_drones=args.N_drones, obs=ObservationType(observation),
+        self.env = C3V1(gui=True, num_drones=args.N_drones, obs=ObservationType(observation),
                         act=ActionType(action),
                         ctrl_freq=Ctrl_Freq,  # 这个值越大，仿真看起来越慢，应该是由于频率变高，速度调整的更小了
                         need_target=True, obs_with_act=True)
@@ -105,7 +105,7 @@ class Runner:
                     self.save_model()  # 评估中实现save了
                     obs_n, _ = self.env.reset()  # gym new api
 
-                if any(done_n):
+                if all(done_n):
                     break
 
             if self.replay_buffer.current_size > self.args.batch_size:
