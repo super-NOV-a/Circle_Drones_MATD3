@@ -1,16 +1,16 @@
 import os
 import time
-
 import torch
 import numpy as np
 import argparse
-from utils.matd3 import MATD3
+from utils.matd3_attention import MATD3
 import copy
 from gym_pybullet_drones.envs.CircleSpread import CircleSpreadAviary
 from gym_pybullet_drones.utils.enums import ObservationType, ActionType
 import matplotlib.pyplot as plt
 
 Env_name = 'circleA'
+Mark = 9104  # todo 测试时指定mark
 action = 'vel'
 
 
@@ -21,7 +21,7 @@ class Runner:
         self.env_name = Env_name
         self.number = 3  #
         self.seed = 1145  # 保证一个seed，名称使用记号--mark
-        self.mark = 9104  # todo 指定mark
+        self.mark = Mark  # 指定mark
         Load_Steps = 10000000  # self.args.max_train_steps = 1e6
         Ctrl_Freq = 30  #
         self.test_times = 3
@@ -48,7 +48,7 @@ class Runner:
         # Create N agents
         if self.args.algorithm == "MATD3":
             print("Algorithm: MATD3")
-            self.agent_n = MATD3.initialize_agents(args)
+            self.agent_n = [MATD3(self.args, agent_id) for agent_id in range(args.N_drones)]
         else:
             print("Wrong algorithm!!!")
 
@@ -59,13 +59,6 @@ class Runner:
                                                                                               self.mark, self.number,
                                                                                               int(Load_Steps / 1000),
                                                                                               agent_id)  # agent_id
-            # if agent_id == 1:   # 效果不好的模型换掉
-            #     model_path = "./model/{}/{}_actor_mark_{}_number_{}_step_{}k_agent_{}.pth".format(self.env_name,
-            #                                                                                       self.args.algorithm,
-            #                                                                                       self.mark,
-            #                                                                                       self.number,
-            #                                                                                       int(Load_Steps / 1000),
-            #                                                                                       agent_id-1)  # agent_id
             self.agent_n[agent_id].actor.load_state_dict(torch.load(model_path))
         self.evaluate_rewards = []  # Record the rewards during the evaluating
         self.noise_std = self.args.noise_std_init  # Initialize noise_std
@@ -75,32 +68,6 @@ class Runner:
             self.evaluate_policy()
         self.env_evaluate.close()
 
-    def convert_obs_dict_to_array(self, obs_dict):
-        obs_array = []
-        if self.args.N_drones != 1:
-            for i in range(self.args.N_drones):
-                obs = obs_dict[i]
-                # action_buffer_flat = np.hstack(obs['action_buffer'])    # 拉成一维
-                obs_array.append(np.hstack([
-                    obs['pos'],
-                    obs['rpy'],
-                    obs['vel'],
-                    obs['ang_vel'],
-                    obs['target_pos'],
-                    obs['other_pos'],
-                    obs['last_action']
-                ]))
-        else:
-            pass
-        return np.array(obs_array).astype('float32')
-
-    def convert_wrap(self, obs_dict):
-        if isinstance(obs_dict, dict):
-            obs_dict = self.convert_obs_dict_to_array(obs_dict)
-        else:
-            obs_dict = obs_dict
-        return obs_dict
-
     def evaluate_policy(self):
         evaluate_reward = 0
         all_states = []
@@ -109,7 +76,6 @@ class Runner:
 
         for eval_time in range(self.args.evaluate_times):
             obs_n, _ = self.env_evaluate.reset()
-            obs_n = self.convert_wrap(obs_n)
             episode_return = [0 for _ in range(self.args.N_drones)]
             episode_states = []
             episode_actions = []
@@ -118,12 +84,11 @@ class Runner:
             for _ in range(self.args.episode_limit):
 
                 a_n = [agent.choose_action(obs, noise_std=0.005) for agent, obs in zip(self.agent_n, obs_n)]  # 不添加噪声
-                for i in range(self.args.N_drones):
-                    if obs_n[i][15] <= 0.5:
-                        a_n[i][3] = 0.1 * a_n[i][3]   # 限制飞到周围后的速度，保证测试不乱飞（偷懒做法）
+                # for i in range(self.args.N_drones):
+                #     if obs_n[i][15] <= 0.5:
+                #         a_n[i][3] = 0.1 * a_n[i][3]   # 限制飞到周围后的速度，保证测试不乱飞（偷懒做法）
                 time.sleep(0.01)
                 obs_next_n, r_n, done_n, _, _ = self.env_evaluate.step(copy.deepcopy(a_n))
-                obs_next_n = self.convert_wrap(obs_next_n)
                 for i in range(self.args.N_drones):
                     episode_return[i] += r_n[i]
 
@@ -169,8 +134,8 @@ class Runner:
         os.makedirs(save_dir, exist_ok=True)
 
         # 保存文件的路径
-        save_file_path = os.path.join(save_dir, "good_example.txt")
-
+        save_file_path = os.path.join(save_dir, "{}_{}_example.txt".format(self.env_name, self.mark))
+        print('此次轨迹已经保存，再次运行测试将会覆盖')
         # 定义不同的颜色，用于区分目标点
         colors = ['r', 'g', 'b']
 
@@ -185,7 +150,7 @@ class Runner:
                 ax.scatter(target[0], target[1], target[2], color=colors[_id % len(colors)],
                            s=100, marker='x', label=f'Target {_id}')
 
-            # 保存智能体轨迹数据 TODO CHECK PATH
+            # 保存智能体轨迹数据
             f.write("\n# Agent Trajectories (x, y, z)\n")
             for agent_id in range(self.args.N_drones):
                 agent_states = states[:, agent_id, :3]  # 提取位置信息
