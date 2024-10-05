@@ -87,7 +87,7 @@ class C3V1(C3V1RLAviary):
             roll, pitch, _ = state['rpy']
 
             if dis < 0.12:
-                # dones[i] = True
+                dones[i] = True
                 punish[i] -= 20
             if z > 4 or z < 0 or dis > 10:  # 检查出界
                 punish[i] = 10

@@ -152,7 +152,7 @@ if __name__ == '__main__':
     check_create_dir(Env_name, 'model')
     parser = argparse.ArgumentParser("Hyperparameters Setting for MADDPG and MATD3 in MPE environment")
     parser.add_argument("--max_train_steps", type=int, default=int(1e6), help=" Maximum number of training steps")
-    parser.add_argument("--episode_limit", type=int, default=1500, help="Maximum number of steps per episode")
+    parser.add_argument("--episode_limit", type=int, default=1000, help="Maximum number of steps per episode")
     parser.add_argument("--test_episode_limit", type=int, default=1500, help="Maximum number of steps per test episode")
     parser.add_argument("--evaluate_freq", type=float, default=100000,
                         help="Evaluate the policy every 'evaluate_freq' steps")

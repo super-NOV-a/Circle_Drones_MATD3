@@ -9,23 +9,25 @@ from gym_pybullet_drones.envs.C3V1 import C3V1
 from gym_pybullet_drones.utils.enums import ObservationType, ActionType
 import matplotlib.pyplot as plt
 
-Env_name = 'c3v1A'
-Mark = 9104  # todo 测试时指定mark
+Env_name = 'c3v1'  # c3v1A 最好的为9200
+Mark = 9200  # todo 测试时指定mark
 action = 'vel'
+Eval_plot = False
 
 
 class Runner:
     def __init__(self, args):
         self.args = args
-        self.args.decive = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.args.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.env_name = Env_name
         self.number = 3  #
         self.seed = 1145  # 保证一个seed，名称使用记号--mark
         self.mark = Mark  # todo 指定mark
         Load_Steps = 10000000  # self.args.max_train_steps = 1e6
-        self.test_times = 3
+        self.test_times = 100  # 修改为100次运行
+        self.success_count = 0  # 用于记录成功次数
         # Create env
-        self.env_evaluate = C3V1(gui=True, num_drones=args.N_drones, obs=ObservationType('kin_target'),
+        self.env_evaluate = C3V1(gui=False, num_drones=args.N_drones, obs=ObservationType('kin_target'),
                                  act=ActionType(action),
                                  ctrl_freq=30,  # 这个值越大，仿真看起来越慢，应该是由于频率变高，速度调整的更小了
                                  need_target=True, obs_with_act=True)
@@ -61,56 +63,62 @@ class Runner:
 
     def run(self, ):
         for i in range(self.test_times):
-            self.evaluate_policy()
+            success = self.evaluate_policy(Eval_plot)
+            if success:
+                self.success_count += 1
         self.env_evaluate.close()
 
-    def evaluate_policy(self):
+        # 计算成功率
+        success_rate = self.success_count / self.test_times
+        print(f"Success Rate: {success_rate * 100}%")
+
+    def evaluate_policy(self, eval_plot):   # 仅测试一次的
         all_states, all_actions, all_rewards, all_target_pos = [], [], [], []
+        success = False  # 用于记录本次运行是否成功
+        obs_n, _ = self.env_evaluate.reset()
+        episode_return = [0 for _ in range(self.args.N_drones)]
+        episode_states = []
+        # episode_actions = []
+        episode_rewards = []
+        episode_target_pos = []
 
-        for eval_time in range(self.args.evaluate_times):
-            obs_n, _ = self.env_evaluate.reset()
-            episode_return = [0 for _ in range(self.args.N_drones)]
-            episode_states = []
-            # episode_actions = []
-            episode_rewards = []
-            episode_target_pos = []
+        for _ in range(self.args.episode_limit):
+            a_n = [agent.choose_action(obs, noise_std=0.005) for agent, obs in zip(self.agent_n, obs_n)]  # 不添加噪声
+            # time.sleep(0.01)
+            obs_next_n, r_n, done_n, _, _ = self.env_evaluate.step(copy.deepcopy(a_n))
+            for i in range(self.args.N_drones):
+                episode_return[i] += r_n[i]
 
-            for _ in range(self.args.episode_limit):
-                a_n = [agent.choose_action(obs, noise_std=0.005) for agent, obs in zip(self.agent_n, obs_n)]  # 不添加噪声
-                # for i in range(self.args.N_drones):
-                #     if obs_n[i][15] <= 0.5:
-                #         a_n[i][3] = 0.1 * a_n[i][3]  # 限制飞到周围后的速度，保证测试不乱飞（偷懒做法）
-                time.sleep(0.01)
-                obs_next_n, r_n, done_n, _, _ = self.env_evaluate.step(copy.deepcopy(a_n))
-                for i in range(self.args.N_drones):
-                    episode_return[i] += r_n[i]
+            # 保存状态、动作和奖励
+            episode_target_pos.append(self.env_evaluate.TARGET_POS)
+            episode_states.append(obs_n)
+            # episode_actions.append(a_n)
+            episode_rewards.append(r_n)
 
-                # 保存状态、动作和奖励
-                episode_target_pos.append(self.env_evaluate.TARGET_POS)
-                episode_states.append(obs_n)
-                # episode_actions.append(a_n)
-                episode_rewards.append(r_n)
+            obs_n = obs_next_n
+            if any(done_n):  # 如果有一个 done 为 True，则算作成功
+                success = True
+                break
 
-                obs_n = obs_next_n
-                if all(done_n):
-                    break
+        all_target_pos.append(episode_target_pos)
+        all_states.append(episode_states)
+        # all_actions.append(episode_actions)
+        all_rewards.append(episode_rewards)
 
-            all_target_pos.append(episode_target_pos)
-            all_states.append(episode_states)
-            # all_actions.append(episode_actions)
-            all_rewards.append(episode_rewards)
-
-            print("eval_time:{} \t episode_reward:{} \t".format(eval_time, episode_return))
+        print("result:{} \t episode_reward:{} \t".format(success, episode_return))
 
         # 将数据转换为numpy数组
-        all_target_pos = np.array(all_target_pos)
-        all_states = np.array(all_states)
-        # all_actions = np.array(all_actions)
-        all_rewards = np.array(all_rewards)
+        if eval_plot:
+            all_target_pos = np.array(all_target_pos)
+            all_states = np.array(all_states)
+            # all_actions = np.array(all_actions)
+            all_rewards = np.array(all_rewards)
 
-        # 绘制图
-        for eval_time in range(self.args.evaluate_times):
-            self.plot_and_save_results(all_states[eval_time], all_rewards[eval_time], all_target_pos[eval_time])
+            # 绘制图
+            for eval_time in range(self.args.evaluate_times):
+                self.plot_and_save_results(all_states[eval_time], all_rewards[eval_time], all_target_pos[eval_time])
+
+        return success
 
     def plot_and_save_results(self, states, rewards, target_pos):
         # 创建图

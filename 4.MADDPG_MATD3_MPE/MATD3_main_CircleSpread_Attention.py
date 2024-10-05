@@ -58,7 +58,7 @@ class Runner:
             self.agent_n = [MADDPG(self.args, agent_id) for agent_id in range(args.N_drones)]
         elif self.args.algorithm == "MATD3":
             print("Algorithm: MATD3")
-            self.agent_n = MATD3.initialize_agents(self.args)
+            self.agent_n = [MATD3(self.args, agent_id) for agent_id in range(args.N_drones)]
         else:
             print("Wrong!!!")
         self.replay_buffer = ReplayBuffer(self.args)
