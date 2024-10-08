@@ -3,7 +3,7 @@ from gym_pybullet_drones.envs.C3V1RLAviary import C3V1RLAviary
 from gym_pybullet_drones.utils.enums import DroneModel, Physics, ActionType, ObservationType
 
 
-class C3V1(C3V1RLAviary):
+class C3V1_Test(C3V1RLAviary):
     """Multi-agent RL problem: 3 VS 1 3d."""
     def __init__(self,
                  drone_model: DroneModel = DroneModel.CF2X,
@@ -39,6 +39,7 @@ class C3V1(C3V1RLAviary):
 
         self.EPISODE_LEN_SEC = 100
         self.previous_dis_to_target = np.zeros(num_drones)  # 初始化前一步的目标距离
+        self.fail = False
 
     def _computeReward(self):
         """
@@ -62,9 +63,6 @@ class C3V1(C3V1RLAviary):
         rewards -= 0.1 * v  # 速度惩罚
         rewards += np.sum(velocity * dis_to_target[:, :3], axis=1) / (v * dis_to_target[:, -1])  # 相似度奖励
         rewards += 10 * np.power(20, -np.abs(dis_to_target[:, 2]))  # 高度奖励
-        # rewards -= 0.1* np.linalg.norm(velocity - self.last_v, axis=1) / np.where(v > 0, v, 1)  # 加速度惩罚
-        # angular_velocity = np.linalg.norm(np.array([state['ang_vel'] for state in states.values()]), axis=1)
-        # rewards -= 0.5 * angular_velocity  # 角速度惩罚
 
         # 队友保持距离与碰撞惩罚
         if self.NUM_DRONES > 1:
@@ -75,22 +73,27 @@ class C3V1(C3V1RLAviary):
 
     ################################################################################
     def _computeTerminated(self):
-        dones = [False for _ in range(self.NUM_DRONES)]
+        dones = np.full(self.NUM_DRONES, False)
         punish = [0.0 for _ in range(self.NUM_DRONES)]  # Use a floating-point value for dynamic punish
-        for i in range(self.NUM_DRONES):
-            state = self._getDroneStateVector(i, True)
-            x, y, z = state['pos']
-            dis = state['target_pos_dis'][3]
-            roll, pitch, _ = state['rpy']
+        states = {i: self._getDroneStateVector(i, with_target=True) for i in range(self.NUM_DRONES)}
 
-            if dis < 0.05:
-                dones[i] = True
-                punish[i] -= 20
-            if z > 4 or z < 0 or dis > 10:  # 检查出界
-                punish[i] = 10
-            if abs(roll) > 0.4 or abs(pitch) > 0.4:     # 姿态惩罚
-                punish[i] = max(punish[i], 1)   # 未出界但是姿态不稳定
-        return dones, punish
+        # if self.NUM_DRONES > 1:
+        #     other_pos_dis = np.array([state['other_pos_dis'] for state in states.values()])
+        #     dist_between_drones = other_pos_dis[:, 3::4]  # 获取每个无人机之间的距离
+        #
+        #     # 如果任意 dist_between_drones <= 0.1，则标志位 self.fail 置为 True
+        #     if np.any(dist_between_drones <= 0.1):
+        #         self.fail = True
+        #
+        #     # # 判断所有己方无人机之间的距离是否都小于等于 1
+        #     # all_within_distance = np.all(dist_between_drones <= 1)
+
+        if not self.fail:  # 没有碰撞
+            dis_to_target = np.array([state['target_pos_dis'][3] for state in states.values()])
+            if np.all(dis_to_target <= 1):  # 全部无人机都靠近目标
+                dones = dis_to_target <= 0.1
+
+        return dones.tolist(), punish
 
     ################################################################################
 

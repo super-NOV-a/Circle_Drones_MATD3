@@ -10,7 +10,7 @@ from gym_pybullet_drones.utils.enums import ObservationType, ActionType
 import matplotlib.pyplot as plt
 
 Env_name = 'circleG'
-Mark = 9104  # todo 测试时指定mark
+Mark = 9202  # todo 测试时指定mark
 action = 'vel'
 
 
@@ -27,6 +27,7 @@ class Runner:
         self.test_times = 3
         # Create env
         self.env_evaluate = CircleSpreadAviary(gui=True, num_drones=args.N_drones, obs=ObservationType('kin_target'),
+                                               initial_xyzs=np.array([[0, 0, 0.2], [1, 0, 0.2], [-1, 0, 0.2]]),
                                                act=ActionType(action),
                                                ctrl_freq=Ctrl_Freq,  # 这个值越大，仿真看起来越慢，应该是由于频率变高，速度调整的更小了
                                                need_target=True, obs_with_act=True)
@@ -59,6 +60,13 @@ class Runner:
                                                                                               self.mark, self.number,
                                                                                               int(Load_Steps / 1000),
                                                                                               agent_id)  # agent_id
+            if agent_id == 1:
+                model_path = "./model/{}/{}_actor_mark_{}_number_{}_step_{}k_agent_{}.pth".format(self.env_name,
+                                                                                                  self.args.algorithm,
+                                                                                                  self.mark,
+                                                                                                  self.number,
+                                                                                                  int(Load_Steps / 1000),
+                                                                                                  0)  # agent_id
             self.agent_n[agent_id].actor.load_state_dict(torch.load(model_path))
         self.evaluate_rewards = []  # Record the rewards during the evaluating
         self.noise_std = self.args.noise_std_init  # Initialize noise_std
@@ -127,7 +135,7 @@ class Runner:
 
         # 生成三种颜色映射
         cmaps = [plt.cm.Reds, plt.cm.Greens, plt.cm.Blues]  # 三种渐变色
-        norms = [plt.Normalize(min_reward - 1, max_reward) for _ in range(3)]
+        norms = [plt.Normalize(min_reward - 5, max_reward) for _ in range(3)]
 
         # 保存路径数据的目录
         save_dir = "./agent_paths"

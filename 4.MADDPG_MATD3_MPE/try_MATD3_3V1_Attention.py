@@ -5,14 +5,14 @@ import numpy as np
 import argparse
 from utils.matd3_attention import MATD3
 import copy
-from gym_pybullet_drones.envs.C3V1 import C3V1
+from gym_pybullet_drones.envs.C3V1_Test import C3V1_Test
 from gym_pybullet_drones.utils.enums import ObservationType, ActionType
 import matplotlib.pyplot as plt
 
-Env_name = 'c3v1'  # c3v1A 最好的为9200
+Env_name = 'c3v1A'  # c3v1 \ c3v1A (最好的为9200)\ c3v1G
 Mark = 9200  # todo 测试时指定mark
 action = 'vel'
-Eval_plot = False
+Eval_plot = True
 
 
 class Runner:
@@ -27,10 +27,10 @@ class Runner:
         self.test_times = 100  # 修改为100次运行
         self.success_count = 0  # 用于记录成功次数
         # Create env
-        self.env_evaluate = C3V1(gui=False, num_drones=args.N_drones, obs=ObservationType('kin_target'),
-                                 act=ActionType(action),
-                                 ctrl_freq=30,  # 这个值越大，仿真看起来越慢，应该是由于频率变高，速度调整的更小了
-                                 need_target=True, obs_with_act=True)
+        self.env_evaluate = C3V1_Test(gui=False, num_drones=args.N_drones, obs=ObservationType('kin_target'),
+                                      act=ActionType(action),
+                                      ctrl_freq=30,  # 这个值越大，仿真看起来越慢，应该是由于频率变高，速度调整的更小了
+                                      need_target=True, obs_with_act=True)
         self.timestep = 1.0 / 30  # 计算每个步骤的时间间隔 0.003
 
         self.args.obs_dim_n = [self.env_evaluate.observation_space[i].shape[0] for i in
@@ -72,10 +72,11 @@ class Runner:
         success_rate = self.success_count / self.test_times
         print(f"Success Rate: {success_rate * 100}%")
 
-    def evaluate_policy(self, eval_plot):   # 仅测试一次的
+    def evaluate_policy(self, eval_plot):  # 仅测试一次的
         all_states, all_actions, all_rewards, all_target_pos = [], [], [], []
         success = False  # 用于记录本次运行是否成功
         obs_n, _ = self.env_evaluate.reset()
+        self.env_evaluate.fail = False
         episode_return = [0 for _ in range(self.args.N_drones)]
         episode_states = []
         # episode_actions = []

@@ -40,7 +40,7 @@ class Critic_MATD3_Graph(nn.Module):
         self.device = args.device
         # GCN 层，用于聚合智能体和邻居的观测和动作信息
         input_dim = sum(args.obs_dim_n) + sum(args.action_dim_n)
-        self.gcn = pyg_nn.GATConv(input_dim, args.hidden_dim).to(self.device)
+        self.gcn = pyg_nn.GCNConv(input_dim, args.hidden_dim).to(self.device)
         # Q1 网络
         self.q1_network = nn.Sequential(
             nn.Linear(args.hidden_dim, args.hidden_dim),

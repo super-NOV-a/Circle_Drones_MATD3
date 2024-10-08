@@ -232,6 +232,7 @@ class CircleBaseAviary(gym.Env):
                                                             farVal=1000.0
                                                             )
         #### Set initial poses #####################################
+        self.keep_init_pos = False
         if initial_xyzs is None:  # todo 修改初始位置
             # 0.8:9个随机cell位置，1.0: 16个，1.3: 25个，1.5: 36个,1.8: 49个,2.0: 64个
             self.cell_pos = generate_non_overlapping_positions_numpy(2)
@@ -240,6 +241,11 @@ class CircleBaseAviary(gym.Env):
             self.INIT_XYZS, self.TARGET_POS = self.get_init()
         elif np.array(initial_xyzs).shape == (self.NUM_DRONES, 3):
             self.INIT_XYZS = initial_xyzs
+            self.cell_pos = generate_non_overlapping_positions_numpy(2)
+            # 若需要，同时给定目标位置
+            self.need_target = need_target
+            _, self.TARGET_POS = self.get_init()
+            self.keep_init_pos = True
         else:
             print("[ERROR] invalid initial_xyzs in BaseAviary.__init__(), try initial_xyzs.reshape(NUM_DRONES,3)")
         if initial_rpys is None:
@@ -591,7 +597,10 @@ class CircleBaseAviary(gym.Env):
         p.setTimeStep(self.PYB_TIMESTEP, physicsClientId=self.CLIENT)  # 用于设置调用stepSimulation时的步长
         p.setAdditionalSearchPath(pybullet_data.getDataPath(), physicsClientId=self.CLIENT)  # 用于增加导入模型的路径
         #### Load ground plane, drone and obstacles models #########
-        self.INIT_XYZS, self.TARGET_POS = self.get_init()  # 重新给出位置
+        if self.keep_init_pos:
+            _, self.TARGET_POS = self.get_init()  # 重新给出位置
+        else:
+            self.INIT_XYZS, self.TARGET_POS = self.get_init()  # 重新给出位置
         self.PLANE_ID = p.loadURDF("plane.urdf", physicsClientId=self.CLIENT)
 
         self.DRONE_IDS = np.array(

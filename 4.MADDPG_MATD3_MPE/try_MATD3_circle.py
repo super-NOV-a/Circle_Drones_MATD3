@@ -9,8 +9,8 @@ from gym_pybullet_drones.envs.CircleSpread import CircleSpreadAviary
 from gym_pybullet_drones.utils.enums import ObservationType, ActionType
 import matplotlib.pyplot as plt
 
-Env_name = 'circle'
-Mark = 9001  # todo 测试时指定mark
+Env_name = 'circle'     # circle最好的为9201
+Mark = 9201  # todo 测试时指定mark
 action = 'vel'
 
 
@@ -127,7 +127,7 @@ class Runner:
 
         # 生成三种颜色映射
         cmaps = [plt.cm.Reds, plt.cm.Greens, plt.cm.Blues]  # 三种渐变色
-        norms = [plt.Normalize(min_reward - 1, max_reward) for _ in range(3)]
+        norms = [plt.Normalize(min_reward - 5, max_reward) for _ in range(3)]
 
         # 保存路径数据的目录
         save_dir = "./agent_paths"

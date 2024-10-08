@@ -3,7 +3,7 @@ from gym_pybullet_drones.envs.C3V1RLAviary import C3V1RLAviary
 from gym_pybullet_drones.utils.enums import DroneModel, Physics, ActionType, ObservationType
 
 
-class C3V1(C3V1RLAviary):
+class C3V1_GlobalReward(C3V1RLAviary):
     """Multi-agent RL problem: 3 VS 1 3d."""
     def __init__(self,
                  drone_model: DroneModel = DroneModel.CF2X,
@@ -53,24 +53,21 @@ class C3V1(C3V1RLAviary):
         每个无人机的奖励值。
         """
         states = {i: self._getDroneStateVector(i, with_target=True) for i in range(self.NUM_DRONES)}
-        rewards = np.zeros(self.NUM_DRONES)
+        rewards = np.zeros(self.NUM_DRONES)  # 初始化每个智能体的奖励
         dis_to_target = np.array([state['target_pos_dis'] for state in states.values()])  # 4
         velocity = np.array([state['vel'] for state in states.values()])  # 3
         v = np.linalg.norm(velocity, axis=1)  # 计算速度的 L2 范数
-
-        rewards += 10 * np.power(20, -dis_to_target[:, -1])  # 距离目标奖励
-        rewards -= 0.1 * v  # 速度惩罚
-        rewards += np.sum(velocity * dis_to_target[:, :3], axis=1) / (v * dis_to_target[:, -1])  # 相似度奖励
-        rewards += 10 * np.power(20, -np.abs(dis_to_target[:, 2]))  # 高度奖励
-        # rewards -= 0.1* np.linalg.norm(velocity - self.last_v, axis=1) / np.where(v > 0, v, 1)  # 加速度惩罚
-        # angular_velocity = np.linalg.norm(np.array([state['ang_vel'] for state in states.values()]), axis=1)
-        # rewards -= 0.5 * angular_velocity  # 角速度惩罚
-
+        rewards += 10 * np.power(20, -dis_to_target[:, -1])     # 距离目标奖励
+        rewards -= 0.1 * v    # 速度惩罚
+        rewards += np.sum(velocity * dis_to_target[:, :3], axis=1) / (v * dis_to_target[:, -1])     # 相似度奖励
+        rewards += 10 * np.power(20, -np.abs(dis_to_target[:, 2]))     # 高度奖励
         # 队友保持距离与碰撞惩罚
         if self.NUM_DRONES > 1:
             other_pos_dis = np.array([state['other_pos_dis'] for state in states.values()])
             dist_between_drones = other_pos_dis[:, 3::4]  # 获取距离
             rewards -= np.sum(100 * np.power(5, (-4 * dist_between_drones - 1)) - 0.2, axis=1)
+        mean_reward = np.mean(rewards)     # 计算全局奖励均值
+        rewards = np.full(self.NUM_DRONES, mean_reward)
         return rewards
 
     ################################################################################
@@ -83,7 +80,7 @@ class C3V1(C3V1RLAviary):
             dis = state['target_pos_dis'][3]
             roll, pitch, _ = state['rpy']
 
-            if dis < 0.05:
+            if dis < 0.12:
                 dones[i] = True
                 punish[i] -= 20
             if z > 4 or z < 0 or dis > 10:  # 检查出界
