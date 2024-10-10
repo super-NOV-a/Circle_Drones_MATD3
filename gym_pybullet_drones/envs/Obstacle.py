@@ -1,11 +1,11 @@
 import itertools
 import numpy as np
 import pybullet as p
-from gym_pybullet_drones.envs.CircleRLAviary import CircleRLAviary
+from gym_pybullet_drones.envs.ObstacleRLAviary import ObstacleRLAviary
 from gym_pybullet_drones.utils.enums import DroneModel, Physics, ActionType, ObservationType
 
 
-class CircleSpreadAviary(CircleRLAviary):
+class Obstacle(ObstacleRLAviary):
     """Multi-agent RL problem: simple_spread in 3d."""
 
     ################################################################################
@@ -13,6 +13,7 @@ class CircleSpreadAviary(CircleRLAviary):
     def __init__(self,
                  drone_model: DroneModel = DroneModel.CF2X,
                  num_drones: int = 1,
+                 num_obstacle: int = 1,
                  neighbourhood_radius: float = np.inf,
                  initial_xyzs=None,
                  initial_rpys=None,
@@ -62,6 +63,7 @@ class CircleSpreadAviary(CircleRLAviary):
 
         super().__init__(drone_model=drone_model,
                          num_drones=num_drones,
+                         num_obstacle=num_obstacle,
                          neighbourhood_radius=neighbourhood_radius,
                          initial_xyzs=initial_xyzs,
                          initial_rpys=initial_rpys,
@@ -161,25 +163,30 @@ class CircleSpreadAviary(CircleRLAviary):
         list of float
         每个无人机的奖励值。
         """
-
         states = {i: self._getDroneStateVector(i, with_target=True) for i in range(self.NUM_DRONES)}
-        rewards = np.zeros(self.NUM_DRONES)
-
-        # 计算目标点距离
+        rewards = np.zeros(self.NUM_DRONES)  # 使用 NumPy 数组
         dis_to_target = np.array([state['target_pos_dis'] for state in states.values()])  # 4
         velocity = np.array([state['vel'] for state in states.values()])  # 3
+        re_pos = np.array([state['pos'] for state in states.values()])  # 障碍距离倒数和
         v = np.linalg.norm(velocity, axis=1)  # 计算速度的 L2 范数
 
-        rewards += 10 * np.power(20, -dis_to_target[:, -1])  # 距离目标奖励
-        rewards -= 0.1 * v  # 速度惩罚
-        rewards += np.sum(velocity * dis_to_target[:, :3], axis=1) / (v * dis_to_target[:, -1])  # 相似度奖励
-        rewards += 10 * np.power(20, -np.abs(dis_to_target[:, 2]))  # 高度奖励
+        # 计算奖励
+        rewards += 15 * np.power(20, -dis_to_target[:, -1])  # 距离奖励
+        rewards += np.sum(velocity * dis_to_target[:, :3], axis=1) / (v * dis_to_target[:, -1])
+        rewards += 3 * np.power(20, -np.abs(dis_to_target[:, 2]))  # 高度奖励
+        # rewards -= 0.1* np.linalg.norm(velocity - self.last_v, axis=1) / np.where(v > 0, v, 1)  # 加速度惩罚
+        angular_velocity = np.linalg.norm(np.array([state['ang_vel'] for state in states.values()]), axis=1)
+        rewards -= 0.5 * angular_velocity  # 角速度惩罚
+        rewards -= 20*np.power(re_pos[:, 2], 2)-0.2  # 距离障碍距离
 
         # 队友保持距离与碰撞惩罚
         if self.NUM_DRONES > 1:
             other_pos_dis = np.array([state['other_pos_dis'] for state in states.values()])
             dist_between_drones = other_pos_dis[:, 3::4]  # 获取距离
-            rewards -= np.sum(100 * np.power(5, (-4 * dist_between_drones - 1)) - 0.15, axis=1)
+            rewards -= np.sum(50 * np.power(5, (-4 * dist_between_drones - 1)) - 0.2, axis=1)
+        # self.last_v = velocity.copy()  # 直接更新 last_v
+
+        np.linalg.norm(re_pos)
         return rewards
 
     ################################################################################
@@ -196,7 +203,7 @@ class CircleSpreadAviary(CircleRLAviary):
 
         for i in range(self.NUM_DRONES):
             state = self._getDroneStateVector(i, True)
-            x, y, z = state['pos']
+            x, y, z = self.pos[i]
             dis = state['target_pos_dis'][3]
             roll, pitch, _ = state['rpy']
 

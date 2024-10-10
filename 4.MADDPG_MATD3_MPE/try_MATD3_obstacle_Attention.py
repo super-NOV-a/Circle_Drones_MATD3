@@ -3,14 +3,14 @@ import time
 import torch
 import numpy as np
 import argparse
-from utils.matd3_attention import MATD3
+from utils.matd3 import MATD3
 import copy
-from gym_pybullet_drones.envs.CircleSpread import CircleSpreadAviary
+from gym_pybullet_drones.envs.Obstacle import Obstacle
 from gym_pybullet_drones.utils.enums import ObservationType, ActionType
 import matplotlib.pyplot as plt
 
-Env_name = 'circleA'
-Mark = 9200  # todo 测试时指定mark
+Env_name = 'obstacle'
+Mark = 1145  # todo 测试时指定mark
 action = 'vel'
 
 
@@ -22,14 +22,14 @@ class Runner:
         self.number = 3  #
         self.seed = 1145  # 保证一个seed，名称使用记号--mark
         self.mark = Mark  # 指定mark
-        Load_Steps = 10000000  # self.args.max_train_steps = 1e7
+        Load_Steps = 1000000  # self.args.max_train_steps = 1e6
         Ctrl_Freq = 30  #
         self.test_times = 3
         # Create env
-        self.env_evaluate = CircleSpreadAviary(gui=True, num_drones=args.N_drones, obs=ObservationType('kin_target'),
-                                               act=ActionType(action),
-                                               ctrl_freq=Ctrl_Freq,  # 这个值越大，仿真看起来越慢，应该是由于频率变高，速度调整的更小了
-                                               need_target=True, obs_with_act=True)
+        self.env_evaluate = Obstacle(gui=True, num_drones=args.N_drones, obs=ObservationType('kin_target'),
+                                     act=ActionType(action),
+                                     ctrl_freq=Ctrl_Freq,  # 这个值越大，仿真看起来越慢，应该是由于频率变高，速度调整的更小了
+                                     need_target=True, obs_with_act=True)
         self.timestep = 1 / Ctrl_Freq  # 计算每个步骤的时间间隔 0.003
 
         self.args.obs_dim_n = [self.env_evaluate.observation_space[i].shape[0] for i in
@@ -127,7 +127,7 @@ class Runner:
 
         # 生成三种颜色映射
         cmaps = [plt.cm.Reds, plt.cm.Greens, plt.cm.Blues]  # 三种渐变色
-        norms = [plt.Normalize(min_reward - 5, max_reward) for _ in range(3)]
+        norms = [plt.Normalize(min_reward - 1, max_reward) for _ in range(3)]
 
         # 保存路径数据的目录
         save_dir = "./agent_paths"
