@@ -54,6 +54,18 @@ class C3V1_GlobalReward(C3V1RLAviary):
         """
         states = {i: self._getDroneStateVector(i, with_target=True) for i in range(self.NUM_DRONES)}
         rewards = np.zeros(self.NUM_DRONES)  # 初始化每个智能体的奖励
+
+        # 队友保持距离与碰撞惩罚
+        if self.NUM_DRONES > 1:
+            other_pos_dis = np.array([state['other_pos_dis'] for state in states.values()])
+            dist_between_drones = other_pos_dis[:, 3::4]  # 获取距离
+            drone_rewards = np.sum(100 * np.power(5, (-4 * dist_between_drones - 1)) - 0.2, axis=1)
+            # 只为第二和第三个无人机添加奖励，跳过第一个无人机
+            # rewards[1:] -= drone_rewards[1:]
+            rewards -= drone_rewards
+        mean_reward = np.mean(rewards)     # 计算全局奖励均值
+        rewards = np.full(self.NUM_DRONES, mean_reward)
+
         dis_to_target = np.array([state['target_pos_dis'] for state in states.values()])  # 4
         velocity = np.array([state['vel'] for state in states.values()])  # 3
         v = np.linalg.norm(velocity, axis=1)  # 计算速度的 L2 范数
@@ -61,13 +73,7 @@ class C3V1_GlobalReward(C3V1RLAviary):
         rewards -= 0.1 * v    # 速度惩罚
         rewards += np.sum(velocity * dis_to_target[:, :3], axis=1) / (v * dis_to_target[:, -1])     # 相似度奖励
         rewards += 10 * np.power(20, -np.abs(dis_to_target[:, 2]))     # 高度奖励
-        # 队友保持距离与碰撞惩罚
-        if self.NUM_DRONES > 1:
-            other_pos_dis = np.array([state['other_pos_dis'] for state in states.values()])
-            dist_between_drones = other_pos_dis[:, 3::4]  # 获取距离
-            rewards -= np.sum(100 * np.power(5, (-4 * dist_between_drones - 1)) - 0.2, axis=1)
-        mean_reward = np.mean(rewards)     # 计算全局奖励均值
-        rewards = np.full(self.NUM_DRONES, mean_reward)
+
         return rewards
 
     ################################################################################

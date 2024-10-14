@@ -36,6 +36,28 @@ class Actor(nn.Module):
         return a
 
 
+class Critic_Single(nn.Module):
+    def __init__(self, args, agent_id):
+        super(Critic_Single, self).__init__()
+        self.device = args.device  # 使用 args.device 指定设备
+        self.fc1 = nn.Linear(args.obs_dim_n[agent_id] + args.action_dim_n[agent_id], args.hidden_dim).to(self.device)
+        self.fc2 = nn.Linear(args.hidden_dim, args.hidden_dim).to(self.device)
+        self.fc3 = nn.Linear(args.hidden_dim, 1).to(self.device)
+        if args.use_orthogonal_init:
+            print("------use_orthogonal_init------")
+            orthogonal_init(self.fc1)
+            orthogonal_init(self.fc2)
+            orthogonal_init(self.fc3)
+
+    def forward(self, s, a):
+        s_a = torch.cat([s, a], dim=1).to(self.device)
+
+        q = F.relu(self.fc1(s_a))
+        q = F.relu(self.fc2(q))
+        q = self.fc3(q)
+        return q
+
+
 class Critic_MADDPG(nn.Module):
     def __init__(self, args):
         super(Critic_MADDPG, self).__init__()

@@ -16,19 +16,20 @@ class MADDPG(object):
         self.gamma = args.gamma
         self.tau = args.tau
         self.use_grad_clip = args.use_grad_clip
+        self.device = args.device  # 新增的设备参数
         # Create an individual actor and critic for each agent according to the 'agent_id'
-        self.actor = Actor(args, agent_id)
-        self.critic = Critic_MADDPG(args)
-        self.actor_target = copy.deepcopy(self.actor)
-        self.critic_target = copy.deepcopy(self.critic)
+        self.actor = Actor(args, agent_id).to(self.device)
+        self.critic = Critic_MADDPG(args).to(self.device)
+        self.actor_target = copy.deepcopy(self.actor).to(self.device)
+        self.critic_target = copy.deepcopy(self.critic).to(self.device)
 
         self.actor_optimizer = torch.optim.Adam(self.actor.parameters(), lr=self.lr_a)
         self.critic_optimizer = torch.optim.Adam(self.critic.parameters(), lr=self.lr_c)
 
     # Each agent selects actions based on its own local observations(add noise for exploration)
     def choose_action(self, obs, noise_std):
-        obs = torch.unsqueeze(torch.tensor(obs, dtype=torch.float), 0)
-        a = self.actor(obs).data.numpy().flatten()
+        obs = torch.unsqueeze(torch.tensor(obs, dtype=torch.float), 0).to(self.device)
+        a = self.actor(obs).data.cpu().numpy().flatten()
         a = (a + np.random.normal(0, noise_std, size=self.action_dim)).clip(-self.max_action, self.max_action)
         return a
 

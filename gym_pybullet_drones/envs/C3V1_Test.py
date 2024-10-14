@@ -1,9 +1,9 @@
 import numpy as np
-from gym_pybullet_drones.envs.C3V1RLAviary import C3V1RLAviary
+from gym_pybullet_drones.envs.C3V1RL_Test import C3V1RL_Test
 from gym_pybullet_drones.utils.enums import DroneModel, Physics, ActionType, ObservationType
 
 
-class C3V1_Test(C3V1RLAviary):
+class C3V1_Test(C3V1RL_Test):
     """Multi-agent RL problem: 3 VS 1 3d."""
     def __init__(self,
                  drone_model: DroneModel = DroneModel.CF2X,
@@ -20,6 +20,9 @@ class C3V1_Test(C3V1RLAviary):
                  act: ActionType = ActionType.RPM,
                  need_target: bool = False,
                  obs_with_act: bool = False,
+                 follow_distance: float = 1.0,  # 跟踪敌机的距离 胜利条件
+                 acctack_distance: float = .1,  # 打击敌机的距离 胜利条件
+                 keep_distance: float = .1,     # 不碰撞距离 成功条件
                  ):
         super().__init__(drone_model=drone_model,
                          num_drones=num_drones,
@@ -39,7 +42,10 @@ class C3V1_Test(C3V1RLAviary):
 
         self.EPISODE_LEN_SEC = 100
         self.previous_dis_to_target = np.zeros(num_drones)  # 初始化前一步的目标距离
-        self.fail = False
+        self.collision = False
+        self.follow_distance = follow_distance
+        self.acctack_distance = acctack_distance
+        self.keep_distance = keep_distance
 
     def _computeReward(self):
         """
@@ -74,26 +80,25 @@ class C3V1_Test(C3V1RLAviary):
     ################################################################################
     def _computeTerminated(self):
         dones = np.full(self.NUM_DRONES, False)
-        punish = [0.0 for _ in range(self.NUM_DRONES)]  # Use a floating-point value for dynamic punish
         states = {i: self._getDroneStateVector(i, with_target=True) for i in range(self.NUM_DRONES)}
 
-        # if self.NUM_DRONES > 1:
-        #     other_pos_dis = np.array([state['other_pos_dis'] for state in states.values()])
-        #     dist_between_drones = other_pos_dis[:, 3::4]  # 获取每个无人机之间的距离
-        #
-        #     # 如果任意 dist_between_drones <= 0.1，则标志位 self.fail 置为 True
-        #     if np.any(dist_between_drones <= 0.1):
-        #         self.fail = True
-        #
-        #     # # 判断所有己方无人机之间的距离是否都小于等于 1
-        #     # all_within_distance = np.all(dist_between_drones <= 1)
+        if self.NUM_DRONES > 1:
+            other_pos_dis = np.array([state['other_pos_dis'] for state in states.values()])
+            dist_between_drones = other_pos_dis[:, 3::4]  # 获取每个无人机之间的距离
 
-        if not self.fail:  # 没有碰撞
+            # 如果任意无人机之间距离小于 安全阈值，则失败（不成功），但不一定不胜利，两者条件不同
+            if np.any(dist_between_drones <= self.keep_distance):
+                self.collision = True
+
+            # # 判断所有己方无人机之间的距离是否都小于等于 1
+            # all_within_distance = np.all(dist_between_drones <= 1)
+
             dis_to_target = np.array([state['target_pos_dis'][3] for state in states.values()])
-            if np.all(dis_to_target <= 1):  # 全部无人机都靠近目标
-                dones = dis_to_target <= 0.1
+            if np.all(dis_to_target <= self.follow_distance):  # 全部无人机都靠近目标
+                dones = dis_to_target <= self.acctack_distance
 
-        return dones.tolist(), punish
+        # done为打击胜利条件，fail为考虑碰撞的成功条件
+        return dones.tolist(), self.collision
 
     ################################################################################
 

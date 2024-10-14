@@ -1,4 +1,5 @@
 import os
+import random
 import time
 import torch
 import numpy as np
@@ -43,8 +44,7 @@ class Runner:
         print("action_dim_n={}".format(self.args.action_dim_n))
 
         # Set random seed
-        np.random.seed(self.seed)
-        torch.manual_seed(self.seed)
+        self.set_random_seed(self.seed)
 
         # Create N agents
         if self.args.algorithm == "MATD3":
@@ -70,6 +70,16 @@ class Runner:
             self.agent_n[agent_id].actor.load_state_dict(torch.load(model_path))
         self.evaluate_rewards = []  # Record the rewards during the evaluating
         self.noise_std = self.args.noise_std_init  # Initialize noise_std
+
+    def set_random_seed(self, seed):
+        """
+        设置固定的随机种子以确保可复现性
+        """
+        np.random.seed(seed)
+        random.seed(seed)
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed(seed)
 
     def run(self, ):
         for i in range(self.test_times):
