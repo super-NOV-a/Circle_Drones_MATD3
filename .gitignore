@@ -3,6 +3,8 @@
 4.MADDPG_MATD3_MPE/model/
 gym_pybullet_drones/new_envs/model/
 
+# 忽略跑出来的路径文件
+4.MADDPG_MATD3_MPE/agent_paths/
 
 
 # 忽略 runs 目录下的所有文件
