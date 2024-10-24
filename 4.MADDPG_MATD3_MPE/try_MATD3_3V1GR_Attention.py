@@ -1,6 +1,5 @@
 import os
 import random
-
 import torch
 import numpy as np
 import argparse
@@ -20,8 +19,8 @@ Env_gui = False                 # 环境gui是否开启 建议关闭 该选项�
 Display = False                 # 开启Eval_plot后：绘制图像是否展示 建议关闭，想看去文件夹下面看去
 Need_Html = False               # 开启Eval_plot后：是否需要Html图像 建议关闭
 Success_Time_Limit = 1000       # 成功时间限制，max: 1000, 不在环境中定义 todo 修改成功条件
-Success_FollowDistance = 1.4      # 成功靠近目标距离: 1。跟踪敌机的距离 胜利条件
-Success_AttackDistance = 0.2    # 成功打击距离: 0.1。打击敌机的距离 胜利条件
+Success_FollowDistance = 1      # 成功靠近目标距离: 1。跟踪敌机的距离 胜利条件
+Success_AttackDistance = 0.3    # 成功打击距离: 0.1。打击敌机的距离 胜利条件
 Success_KeepDistance = 0.1      # 彼此不碰撞距离: 0.1。不碰撞距离 成功条件
 # 胜利条件=时间限制+跟踪敌机的距离限制+打击敌机的距离限制
 # 成功条件(完美条件)=时间限制+跟踪敌机的距离限制+打击敌机的距离限制+彼此不碰撞距离条件
@@ -36,7 +35,7 @@ class Runner:
         self.seed = 1145  # 保证一个seed，名称使用记号--mark
         self.mark = Mark  # todo 指定mark
         Load_Steps = 10000000  # self.args.max_train_steps = 1e6
-        self.test_times = 100  # 修改为100次运行
+        self.test_times = 300  # 修改为100次运行
         self.done_count = 0  # 用于记录胜利次数
         self.success_count = 0  # 用于记录成功次数（完美条件）
         # Create env

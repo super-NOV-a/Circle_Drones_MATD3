@@ -5,6 +5,27 @@ import copy
 from .networks import Actor, Critic_MATD3_Attention_Potential
 
 
+class OUNoise:
+    def __init__(self, action_dim, mu=0.0, theta=0.15, sigma=0.2):
+        self.action_dim = action_dim
+        self.mu = mu
+        self.theta = theta
+        self.sigma = sigma
+        self.state = np.ones(self.action_dim) * self.mu
+        self.reset()
+
+    def reset(self):
+        """重置噪声状态为均值"""
+        self.state = np.ones(self.action_dim) * self.mu
+
+    def noise(self):
+        """生成 OU 噪声"""
+        x = self.state
+        dx = self.theta * (self.mu - x) + self.sigma * np.random.randn(self.action_dim)
+        self.state = x + dx
+        return self.state
+
+
 class MATD3(object):
     def __init__(self, args, agent_id, shared_critic=None, shared_critic_optimizer=None):
         self.N_drones = args.N_drones
@@ -25,7 +46,6 @@ class MATD3(object):
         # 创建每个agent的独立actor和critic
         self.actor = Actor(args, agent_id).to(self.device)  # 移动到设备
         self.actor_target = copy.deepcopy(self.actor).to(self.device)  # 移动到设备
-
         # 如果传入了共享的Critic，就使用它，否则创建一个新的
         if shared_critic is None:
             self.critic = Critic_MATD3_Attention_Potential(args).to(self.device)        # todo 下面定义的类方法要修改
@@ -35,16 +55,17 @@ class MATD3(object):
             self.critic = shared_critic
             self.critic_target = copy.deepcopy(shared_critic).to(self.device)
             self.critic_optimizer = shared_critic_optimizer
-
         self.actor_optimizer = torch.optim.Adam(self.actor.parameters(), lr=self.lr_a)
+    #     # 创建 OU 噪声生成器
+    #     self.ou_noise = OUNoise(action_dim=self.action_dim, theta=0.15, sigma=0.2)
+    #
+    # def reset_noise(self):
+    #     self.ou_noise.reset()
 
     # Each agent selects actions based on its own local observations(add noise for exploration)
     def choose_action(self, obs, noise_std):
         obs = torch.unsqueeze(torch.tensor(obs, dtype=torch.float).to(self.device), 0)  # 移动到设备
         a = self.actor(obs).data.cpu().numpy().flatten()  # 返回到CPU
-        # if np.random.rand() < 0.2:# 使用epsilon-greedy策略
-        #     a = np.random.uniform(-self.max_action, self.max_action, size=a.shape)
-        # else:
         a += np.random.normal(0, noise_std, size=a.shape)
         return a.clip(-self.max_action, self.max_action)
 

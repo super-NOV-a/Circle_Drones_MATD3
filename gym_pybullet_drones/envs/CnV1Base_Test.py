@@ -24,9 +24,13 @@ def generate_non_overlapping_positions_numpy(scale=1.0):
     返回:
     list: 生成的位置列表，每个位置为(x, y, z)的元组。
     """
-    cell_size = 0.5     # 单元格大小固定为0.4
-    total_range = 2 * scale    # 计算新的总范围
+    np.random.seed(1145)    # todo 这里的 seed 应该与 try 中保持一致
+    # 单元格大小固定为0.4
+    cell_size = 0.5
+    # 计算新的总范围
+    total_range = 2 * scale
     divisions = int(total_range / cell_size)
+
     # 生成所有可能的单元格坐标
     cell_coordinates = np.array(
         [(x, y) for x in range(divisions) for y in range(divisions)])
@@ -40,7 +44,7 @@ def generate_non_overlapping_positions_numpy(scale=1.0):
     return positions
 
 
-class C3V1BaseAviary(gym.Env):
+class CnV1Base_Test(gym.Env):
     def __init__(self,
                  drone_model: DroneModel = DroneModel.CF2X,
                  num_drones: int = 1,
@@ -58,7 +62,7 @@ class C3V1BaseAviary(gym.Env):
                  output_folder='results',
                  need_target=False,
                  obs_with_act=False,
-                 all_axis=2,
+                 all_axis: float = 2,
                  ):
         #### Constants #############################################
         self.G = 9.8
@@ -193,7 +197,7 @@ class C3V1BaseAviary(gym.Env):
         self.keep_init_pos = False
         if initial_xyzs is None:
             # 0.8:9个随机cell位置，1.0: 16个，1.3: 25个，1.5: 36个,1.8: 49个,2.0: 64个
-            self.cell_pos = generate_non_overlapping_positions_numpy(5)
+            self.cell_pos = generate_non_overlapping_positions_numpy(all_axis)
             # pprint(self.cell_pos)
             # 若需要，同时给定目标位置
             self.need_target = need_target
@@ -201,7 +205,7 @@ class C3V1BaseAviary(gym.Env):
             self.INIT_Target = self.TARGET_POS
         elif np.array(initial_xyzs).shape == (self.NUM_DRONES, 3):
             self.INIT_XYZS = initial_xyzs
-            self.cell_pos = generate_non_overlapping_positions_numpy(5)
+            self.cell_pos = generate_non_overlapping_positions_numpy(all_axis)
             # 若需要，同时给定目标位置
             self.need_target = need_target
             _, self.TARGET_POS, self.END_Target = self.get_init()
@@ -422,13 +426,13 @@ class C3V1BaseAviary(gym.Env):
         _obs, if_po = self._computeObs()  # 是否
         obs = self.to_array_obs(_obs, if_po)
         rewards = self._computeReward()
-        terminated, punish = self._computeTerminated()
-        truncated = self._computeTruncated()
+        terminated, collided = self._computeTerminated()
+        # truncated = self._computeTruncated()
         info = self._computeInfo()
         self.step_counter += (1 * self.PYB_STEPS_PER_CTRL)
-        adjusted_rewards = [reward - p1 - p2 for reward, p1, p2 in zip(rewards, punish, safe_penalty)]
+        adjusted_rewards = [reward - p for reward, p in zip(rewards, safe_penalty)]
 
-        return obs, adjusted_rewards, terminated, truncated, info
+        return obs, adjusted_rewards, terminated, collided, info
 
     ################################################################################
 
@@ -592,6 +596,7 @@ class C3V1BaseAviary(gym.Env):
             self._addObstacles()
         if self.need_target:
             self.show_target()
+        self.other_pos = [[]for _ in range(self.NUM_DRONES)]     # 用于保存其他智能体的位置
 
     ################################################################################
 
@@ -640,24 +645,37 @@ class C3V1BaseAviary(gym.Env):
 
             (pos, quat, rpy, vel, ang_vel, target_pos_dis, other_pos_dis, last_clipped_action)
         """
-        state_dict = {
-            'pos': self.pos[nth_drone, :],  # 3
-            'quat': self.quat[nth_drone, :],  # 4
-            'rpy': self.rpy[nth_drone, :],  # 3
-            'vel': self.vel[nth_drone, :],  # 3
-            'ang_vel': self.ang_v[nth_drone, :],  # 3
-            'target_pos_dis': np.append(self.TARGET_POS[:] - self.pos[nth_drone, :],
-                                        np.linalg.norm(self.TARGET_POS[:] - self.pos[nth_drone, :]))  # 4
-        }
-        other_pos_dis = []  # 存储智能体指向其他智能体的向量和距离 4*(N-1)
-        for i in range(self.NUM_DRONES):
-            if i != nth_drone:
-                pos = self.pos[i, :] - self.pos[nth_drone, :]
-                dis = np.linalg.norm(self.pos[i, :] - self.pos[nth_drone, :])
+        if with_target:
+            state_dict = {
+                'pos': self.pos[nth_drone, :],  # 3
+                'quat': self.quat[nth_drone, :],  # 4
+                'rpy': self.rpy[nth_drone, :],  # 3
+                'vel': self.vel[nth_drone, :],  # 3
+                'ang_vel': self.ang_v[nth_drone, :],  # 3
+                'target_pos_dis': np.append(self.TARGET_POS[:] - self.pos[nth_drone, :],
+                                            np.linalg.norm(self.TARGET_POS[:] - self.pos[nth_drone, :]))  # 4
+            }
+            other_pos_dis = []  # 存储智能体指向最近两个其他智能体的向量和距离
+            distances = []  # 临时存储每个无人机与其他无人机的距离及其对应的索引
+            for i in range(self.NUM_DRONES):
+                if i != nth_drone:
+                    pos = self.pos[i, :] - self.pos[nth_drone, :]
+                    dis = np.linalg.norm(pos)  # 计算到第n架无人机的距离
+                    distances.append((dis, pos))  # 记录距离和位置
+            distances.sort(key=lambda x: x[0])  # 按距离排序
+            nearest_two = distances[:2]  # 选择最近的两架无人机
+            for dis, pos in nearest_two:    # 将最近两架无人机的相对位置和距离添加到列表中
                 other_pos_dis.append(np.append(pos, dis))
-        state_dict['other_pos_dis'] = np.array(other_pos_dis).flatten()  # 合并后的向量和距离
-        # state_dict['last_clipped_action'] = self.last_clipped_action[nth_drone, :]  # 动作在RL文件中读取的
-        return state_dict
+            self.other_pos[nth_drone] = other_pos_dis
+            # 将结果保存到state_dict中
+            state_dict['other_pos_dis'] = np.array(other_pos_dis).flatten()  # 合并后的向量和距离
+            # state_dict['last_clipped_action'] = self.last_clipped_action[nth_drone, :]  # 动作在RL文件中读取的
+            return state_dict
+        else:  # 不需要目标位置
+            state = np.hstack([self.pos[nth_drone, :], self.quat[nth_drone, :], self.rpy[nth_drone, :],
+                               self.vel[nth_drone, :], self.ang_v[nth_drone, :],
+                               self.last_clipped_action[nth_drone, :]])
+            return state.reshape(20, )
 
     ################################################################################
 

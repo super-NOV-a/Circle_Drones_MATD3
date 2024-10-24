@@ -42,16 +42,12 @@ class MATD3(object):
     def choose_action(self, obs, noise_std):
         obs = torch.unsqueeze(torch.tensor(obs, dtype=torch.float).to(self.device), 0)  # 移动到设备
         a = self.actor(obs).data.cpu().numpy().flatten()  # 返回到CPU
-        # if np.random.rand() < 0.2:# 使用epsilon-greedy策略
-        #     a = np.random.uniform(-self.max_action, self.max_action, size=a.shape)
-        # else:
         a += np.random.normal(0, noise_std, size=a.shape)
         return a.clip(-self.max_action, self.max_action)
 
     def train(self, replay_buffer, agent_n):
         self.actor_pointer += 1
         batch_obs_n, batch_a_n, batch_r_n, batch_obs_next_n, batch_done_n = replay_buffer.sample()
-
         # Compute target_Q
         with torch.no_grad():  # target_Q has no gradient
             # Trick 1:target policy smoothing
@@ -61,11 +57,9 @@ class MATD3(object):
                 noise = (torch.randn_like(batch_a_next) * self.policy_noise).clamp(-self.noise_clip, self.noise_clip)
                 batch_a_next = (batch_a_next + noise).clamp(-self.max_action, self.max_action)
                 batch_a_next_n.append(batch_a_next)
-
             # Trick 2:clipped double Q-learning
             Q1_next, Q2_next = self.critic_target(batch_obs_next_n, batch_a_next_n)
             target_Q = batch_r_n[self.agent_id] + self.gamma * (1 - batch_done_n[self.agent_id]) * torch.min(Q1_next, Q2_next)  # shape:(batch_size,1)
-
         # Compute current_Q
         current_Q1, current_Q2 = self.critic(batch_obs_n, batch_a_n)  # shape:(batch_size,1)
         critic_loss = F.mse_loss(current_Q1, target_Q) + F.mse_loss(current_Q2, target_Q)
@@ -91,7 +85,6 @@ class MATD3(object):
             # Softly update the target networks
             for param, target_param in zip(self.critic.parameters(), self.critic_target.parameters()):
                 target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
-
             for param, target_param in zip(self.actor.parameters(), self.actor_target.parameters()):
                 target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
 

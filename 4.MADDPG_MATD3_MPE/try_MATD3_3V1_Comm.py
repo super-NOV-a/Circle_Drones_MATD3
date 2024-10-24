@@ -3,28 +3,27 @@ import random
 import torch
 import numpy as np
 import argparse
-from utils.matd3_graph import MATD3
+from utils.matd3_attention import MATD3
 import copy
-from gym_pybullet_drones.envs.C3V1_Test import C3V1_Test
+from gym_pybullet_drones.envs.C3V1_Comm import C3V1_Comm
 from gym_pybullet_drones.utils.enums import ObservationType, ActionType
 import matplotlib.pyplot as plt
 import plotly.graph_objects as go
 
-
-Env_name = 'c3v1G'  # c3v1G是GAT, c3v1G2是GCN
-Mark = 9230  # todo 测试时指定mark C3V1G最好的是9203  G2:9203
+comm_level = 2  # 1表示两两通信为6位，2表示两两通信为9位
+Env_name = 'c3v1Comm'  # c3v1 \ c3v1A (最好的为9200)\ c3v1G\c3v1A_GR (最好的为9200)
+Mark = 9202  # todo 测试时指定mark  较多通信9206  最多通信9202
 action = 'vel'
 Eval_plot = True                # 是否绘制轨迹图像 该选项同时保存txt和png文件,重复保存会覆盖 该选项会增加运行时间!
 Env_gui = False                 # 环境gui是否开启 建议关闭 该选项会增加时间
 Display = False                 # 开启Eval_plot后：绘制图像是否展示 建议关闭，想看去文件夹下面看去
 Need_Html = False               # 开启Eval_plot后：是否需要Html图像 建议关闭
 Success_Time_Limit = 1000       # 成功时间限制，max: 1000, 不在环境中定义 todo 修改成功条件
-Success_FollowDistance = 0.2      # 成功靠近目标距离: 1。跟踪敌机的距离 胜利条件
-Success_AttackDistance = 0.1    # 成功打击距离: 0.1。打击敌机的距离 胜利条件
-Success_KeepDistance = 0.1      # 彼此不碰撞距离: 0.1。不碰撞距离 成功条件
+Success_FollowDistance = 1.0      # 成功靠近目标距离: 1。跟踪敌机的距离 胜利条件
+Success_AttackDistance = 0.1    # 成功打击距离: 0.13。打击敌机的距离 胜利条件
+Success_KeepDistance = 0.1      # 彼此不碰撞距离: 0.08。不碰撞距离 成功条件
 # 胜利条件=时间限制+跟踪敌机的距离限制+打击敌机的距离限制
 # 成功条件(完美条件)=时间限制+跟踪敌机的距离限制+打击敌机的距离限制+彼此不碰撞距离条件
-all_axis = 2    # x,y范围
 
 
 class Runner:
@@ -35,18 +34,15 @@ class Runner:
         self.number = 3  #
         self.seed = 1145  # 保证一个seed，名称使用记号--mark
         self.mark = Mark  # todo 指定mark
-        Load_Steps = 9000000  # self.args.max_train_steps = 1e6
+        Load_Steps = 10000000  # self.args.max_train_steps = 1e6
         self.test_times = 300  # 修改为100次运行
         self.done_count = 0  # 用于记录胜利次数
         self.success_count = 0  # 用于记录成功次数（完美条件）
         # Create env
-        self.env_evaluate = C3V1_Test(gui=Env_gui, num_drones=args.N_drones, obs=ObservationType('kin_target'),
+        self.env_evaluate = C3V1_Comm(gui=Env_gui, num_drones=args.N_drones, obs=ObservationType('kin_target'),
                                       act=ActionType(action),
                                       ctrl_freq=30,  # 这个值越大，仿真看起来越慢，应该是由于频率变高，速度调整的更小了
-                                      need_target=True, obs_with_act=True,
-                                      follow_distance=Success_FollowDistance,
-                                      acctack_distance=Success_AttackDistance,
-                                      keep_distance=Success_KeepDistance, all_axis=all_axis)
+                                      need_target=True, obs_with_act=True, comm_level=comm_level)
         self.timestep = 1.0 / 30  # 计算每个步骤的时间间隔 0.003
 
         self.args.obs_dim_n = [self.env_evaluate.observation_space[i].shape[0] for i in
@@ -98,7 +94,8 @@ class Runner:
         # 计算成功率
         done_rate = self.done_count / self.test_times
         success_rate = self.success_count / self.test_times
-        print(f"任务胜率: {done_rate * 100}%, 完美成功率: {success_rate * 100}%")
+        print(f"条件靠近距离{Success_FollowDistance},打击距离{Success_AttackDistance},"
+              f"任务胜率: {done_rate * 100}%, 完美成功率: {success_rate * 100}%")
 
     def evaluate_policy(self, eval_plot, eval_time):  # 仅测试一次的
         all_states, all_actions, all_rewards, all_target_pos = [], [], [], []
@@ -112,7 +109,7 @@ class Runner:
         episode_rewards = []
         episode_target_pos = []
 
-        for _ in range(self.args.episode_limit):
+        for episode_len in range(self.args.episode_limit):
             a_n = [agent.choose_action(obs, noise_std=0.005) for agent, obs in zip(self.agent_n, obs_n)]  # 不添加噪声
             # time.sleep(0.01)
             obs_next_n, r_n, done_n, collided, _ = self.env_evaluate.step(copy.deepcopy(a_n))
@@ -131,6 +128,8 @@ class Runner:
                 if collided is False:  # 期间没有发生碰撞
                     Success = True
                 break
+            # if episode_len > Success_Time_Limit:
+            #     pass
 
         all_target_pos.append(episode_target_pos)
         all_states.append(episode_states)

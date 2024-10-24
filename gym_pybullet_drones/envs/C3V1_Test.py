@@ -23,6 +23,7 @@ class C3V1_Test(C3V1RL_Test):
                  follow_distance: float = 1.0,  # 跟踪敌机的距离 胜利条件
                  acctack_distance: float = .1,  # 打击敌机的距离 胜利条件
                  keep_distance: float = .1,     # 不碰撞距离 成功条件
+                 all_axis: int = 2,
                  ):
         super().__init__(drone_model=drone_model,
                          num_drones=num_drones,
@@ -38,6 +39,7 @@ class C3V1_Test(C3V1RL_Test):
                          act=act,
                          need_target=need_target,
                          obs_with_act=obs_with_act,
+                         all_axis=all_axis,
                          )
 
         self.EPISODE_LEN_SEC = 100
@@ -68,7 +70,7 @@ class C3V1_Test(C3V1RL_Test):
         rewards += 10 * np.power(20, -dis_to_target[:, -1])  # 距离目标奖励
         rewards -= 0.1 * v  # 速度惩罚
         rewards += np.sum(velocity * dis_to_target[:, :3], axis=1) / (v * dis_to_target[:, -1])  # 相似度奖励
-        rewards += 10 * np.power(20, -np.abs(dis_to_target[:, 2]))  # 高度奖励
+        rewards += 3 * np.power(20, -np.abs(dis_to_target[:, 2]))  # 高度奖励
 
         # 队友保持距离与碰撞惩罚
         if self.NUM_DRONES > 1:

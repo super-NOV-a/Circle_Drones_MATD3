@@ -28,6 +28,7 @@ class C3V1RL_Test(C3V1Base_Test):
                  act: ActionType = ActionType.RPM,
                  need_target: bool = False,
                  obs_with_act: bool = False,
+                 all_axis: int = 2,
                  ):
         """Initialization of a generic single and multi-agent RL environment.
 
@@ -94,6 +95,7 @@ class C3V1RL_Test(C3V1Base_Test):
                          vision_attributes=vision_attributes,
                          need_target=need_target,
                          obs_with_act=obs_with_act,
+                         all_axis=all_axis,
                          )
         #### Set a limit on the maximum target speed ###############
         if act == ActionType.VEL or act == ActionType.MIXED:

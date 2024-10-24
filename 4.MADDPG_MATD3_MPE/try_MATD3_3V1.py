@@ -17,10 +17,10 @@ Mark = 9201  # todo 测试时指定mark C3V1最好的是9201
 action = 'vel'
 Eval_plot = True                # 是否绘制轨迹图像 该选项同时保存txt和png文件,重复保存会覆盖 该选项会增加运行时间!
 Env_gui = False                 # 环境gui是否开启 建议关闭 该选项会增加时间
-Display = True                 # 开启Eval_plot后：绘制图像是否展示 建议关闭，想看去文件夹下面看去
+Display = False                 # 开启Eval_plot后：绘制图像是否展示 建议关闭，想看去文件夹下面看去
 Need_Html = False               # 开启Eval_plot后：是否需要Html图像 建议关闭
 Success_Time_Limit = 1000       # 成功时间限制，max: 1000, 不在环境中定义 todo 修改成功条件
-Success_FollowDistance = 1      # 成功靠近目标距离: 1。跟踪敌机的距离 胜利条件
+Success_FollowDistance = 0.5      # 成功靠近目标距离: 1。跟踪敌机的距离 胜利条件
 Success_AttackDistance = 0.1    # 成功打击距离: 0.1。打击敌机的距离 胜利条件
 Success_KeepDistance = 0.1      # 彼此不碰撞距离: 0.1。不碰撞距离 成功条件
 # 胜利条件=时间限制+跟踪敌机的距离限制+打击敌机的距离限制
@@ -36,7 +36,7 @@ class Runner:
         self.seed = 1145  # 保证一个seed，名称使用记号--mark
         self.mark = Mark  # todo 指定mark
         Load_Steps = 10000000  # self.args.max_train_steps = 1e6
-        self.test_times = 100  # 修改为100次运行
+        self.test_times = 30  # 修改为100次运行
         self.done_count = 0  # 用于记录胜利次数
         self.success_count = 0  # 用于记录成功次数（完美条件）
         # Create env

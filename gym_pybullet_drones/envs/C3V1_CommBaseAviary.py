@@ -24,9 +24,12 @@ def generate_non_overlapping_positions_numpy(scale=1.0):
     返回:
     list: 生成的位置列表，每个位置为(x, y, z)的元组。
     """
-    cell_size = 0.5     # 单元格大小固定为0.4
-    total_range = 2 * scale    # 计算新的总范围
+    # 单元格大小固定为0.4
+    cell_size = 0.5
+    # 计算新的总范围
+    total_range = 2 * scale
     divisions = int(total_range / cell_size)
+
     # 生成所有可能的单元格坐标
     cell_coordinates = np.array(
         [(x, y) for x in range(divisions) for y in range(divisions)])
@@ -40,7 +43,7 @@ def generate_non_overlapping_positions_numpy(scale=1.0):
     return positions
 
 
-class C3V1BaseAviary(gym.Env):
+class C3V1_CommBaseAviary(gym.Env):
     def __init__(self,
                  drone_model: DroneModel = DroneModel.CF2X,
                  num_drones: int = 1,
@@ -58,8 +61,9 @@ class C3V1BaseAviary(gym.Env):
                  output_folder='results',
                  need_target=False,
                  obs_with_act=False,
-                 all_axis=2,
+                 comm_level=1,
                  ):
+        self.level = comm_level
         #### Constants #############################################
         self.G = 9.8
         self.RAD2DEG = 180 / np.pi
@@ -193,7 +197,7 @@ class C3V1BaseAviary(gym.Env):
         self.keep_init_pos = False
         if initial_xyzs is None:
             # 0.8:9个随机cell位置，1.0: 16个，1.3: 25个，1.5: 36个,1.8: 49个,2.0: 64个
-            self.cell_pos = generate_non_overlapping_positions_numpy(5)
+            self.cell_pos = generate_non_overlapping_positions_numpy(2)
             # pprint(self.cell_pos)
             # 若需要，同时给定目标位置
             self.need_target = need_target
@@ -201,7 +205,7 @@ class C3V1BaseAviary(gym.Env):
             self.INIT_Target = self.TARGET_POS
         elif np.array(initial_xyzs).shape == (self.NUM_DRONES, 3):
             self.INIT_XYZS = initial_xyzs
-            self.cell_pos = generate_non_overlapping_positions_numpy(5)
+            self.cell_pos = generate_non_overlapping_positions_numpy(2)
             # 若需要，同时给定目标位置
             self.need_target = need_target
             _, self.TARGET_POS, self.END_Target = self.get_init()
@@ -291,7 +295,7 @@ class C3V1BaseAviary(gym.Env):
                                                 ]))
                 if not if_PO:  # 不包含PO
                     obs_array.append(np.hstack([obs['pos'], obs['rpy'], obs['vel'], obs['ang_vel'],
-                                                obs['target_pos'], obs['other_pos'], obs['last_action']
+                                                obs['target_pos'], obs['other_pos'], obs['other_info'], obs['last_action']
                                                 ]))
         else:
             pass
@@ -633,7 +637,7 @@ class C3V1BaseAviary(gym.Env):
 
     ################################################################################
 
-    def _getDroneStateVector(self, nth_drone, with_target=False):
+    def _getDroneStateVector(self, nth_drone, with_target=False):   # 总长度40
         """Returns the state vector of the n-th drone.
 
             (3,   4,    3,   3,    3,       4*n,            4*(n-1),         4)
@@ -649,13 +653,24 @@ class C3V1BaseAviary(gym.Env):
             'target_pos_dis': np.append(self.TARGET_POS[:] - self.pos[nth_drone, :],
                                         np.linalg.norm(self.TARGET_POS[:] - self.pos[nth_drone, :]))  # 4
         }
+        other_inform = []   # 存储其他智能体的速度、欧拉角等信息 6*(N-1)  = 12
         other_pos_dis = []  # 存储智能体指向其他智能体的向量和距离 4*(N-1)
-        for i in range(self.NUM_DRONES):
-            if i != nth_drone:
-                pos = self.pos[i, :] - self.pos[nth_drone, :]
-                dis = np.linalg.norm(self.pos[i, :] - self.pos[nth_drone, :])
-                other_pos_dis.append(np.append(pos, dis))
+        if self.level == 1:
+            for i in range(self.NUM_DRONES):
+                if i != nth_drone:
+                    pos = self.pos[i, :] - self.pos[nth_drone, :]
+                    dis = np.linalg.norm(self.pos[i, :] - self.pos[nth_drone, :])
+                    other_pos_dis.append(np.append(pos, dis))
+                    other_inform.append(self.vel[i, :])  # np.append(, self.rpy[i, :])
+        elif self.level == 2:
+            for i in range(self.NUM_DRONES):
+                if i != nth_drone:
+                    pos = self.pos[i, :] - self.pos[nth_drone, :]
+                    dis = np.linalg.norm(self.pos[i, :] - self.pos[nth_drone, :])
+                    other_pos_dis.append(np.append(pos, dis))
+                    other_inform.append(np.append(self.vel[i, :], self.rpy[i, :]))
         state_dict['other_pos_dis'] = np.array(other_pos_dis).flatten()  # 合并后的向量和距离
+        state_dict['other_inform'] = np.array(other_inform).flatten()   # 合并后的其他信息，如速度、欧拉角
         # state_dict['last_clipped_action'] = self.last_clipped_action[nth_drone, :]  # 动作在RL文件中读取的
         return state_dict
 

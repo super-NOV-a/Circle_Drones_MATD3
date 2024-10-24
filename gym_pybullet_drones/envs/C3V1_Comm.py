@@ -1,9 +1,9 @@
 import numpy as np
-from gym_pybullet_drones.envs.C3V1RLAviary import C3V1RLAviary
+from gym_pybullet_drones.envs.C3V1_CommRLAviary import C3V1_CommRLAviary
 from gym_pybullet_drones.utils.enums import DroneModel, Physics, ActionType, ObservationType
 
 
-class C3V1(C3V1RLAviary):
+class C3V1_Comm(C3V1_CommRLAviary):
     """Multi-agent RL problem: 3 VS 1 3d."""
     def __init__(self,
                  drone_model: DroneModel = DroneModel.CF2X,
@@ -20,7 +20,7 @@ class C3V1(C3V1RLAviary):
                  act: ActionType = ActionType.RPM,
                  need_target: bool = False,
                  obs_with_act: bool = False,
-                 all_axis: float = 2.,
+                 comm_level: int = 1,
                  ):
         super().__init__(drone_model=drone_model,
                          num_drones=num_drones,
@@ -36,7 +36,7 @@ class C3V1(C3V1RLAviary):
                          act=act,
                          need_target=need_target,
                          obs_with_act=obs_with_act,
-                         all_axis=all_axis,
+                         comm_level=comm_level,
                          )
 
         self.EPISODE_LEN_SEC = 100
@@ -60,10 +60,10 @@ class C3V1(C3V1RLAviary):
         velocity = np.array([state['vel'] for state in states.values()])  # 3
         v = np.linalg.norm(velocity, axis=1)  # 计算速度的 L2 范数
 
-        rewards += 30 * np.power(20, -dis_to_target[:, -1])  # 距离目标奖励
-        rewards -= v  # 速度惩罚
+        rewards += 10 * np.power(20, -dis_to_target[:, -1])  # 距离目标奖励
+        rewards -= 0.1 * v  # 速度惩罚
         rewards += np.sum(velocity * dis_to_target[:, :3], axis=1) / (v * dis_to_target[:, -1])  # 相似度奖励
-        # rewards += 3 * np.power(20, -np.abs(dis_to_target[:, 2]))  # 高度奖励
+        rewards += 3 * np.power(20, -np.abs(dis_to_target[:, 2]))  # 高度奖励
         # rewards -= 0.1* np.linalg.norm(velocity - self.last_v, axis=1) / np.where(v > 0, v, 1)  # 加速度惩罚
         # angular_velocity = np.linalg.norm(np.array([state['ang_vel'] for state in states.values()]), axis=1)
         # rewards -= 0.5 * angular_velocity  # 角速度惩罚
@@ -72,7 +72,7 @@ class C3V1(C3V1RLAviary):
         if self.NUM_DRONES > 1:
             other_pos_dis = np.array([state['other_pos_dis'] for state in states.values()])
             dist_between_drones = other_pos_dis[:, 3::4]  # 获取距离
-            rewards -= 2*np.sum(100 * np.power(5, (-4 * dist_between_drones - 1)) - 0.2, axis=1)
+            rewards -= np.sum(100 * np.power(5, (-4 * dist_between_drones - 1)) - 0.2, axis=1)
         return rewards
 
     ################################################################################

@@ -5,6 +5,7 @@ gym_pybullet_drones/new_envs/model/
 
 # 忽略跑出来的路径文件
 4.MADDPG_MATD3_MPE/agent_paths/
+4.MADDPG_MATD3_MPE/data_train/
 
 
 # 忽略 runs 目录下的所有文件
@@ -14,5 +15,7 @@ gym_pybullet_drones/new_envs/runs/
 
 # 忽略circle camera环境
 5.RNN_MATD3_Circle/
+# 忽略mpe环境
+/env
 
 git_steps.md

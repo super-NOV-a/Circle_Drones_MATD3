@@ -19,9 +19,9 @@ Env_gui = False                 # 环境gui是否开启 建议关闭 该选项�
 Display = False                 # 开启Eval_plot后：绘制图像是否展示 建议关闭，想看去文件夹下面看去
 Need_Html = False               # 开启Eval_plot后：是否需要Html图像 建议关闭
 Success_Time_Limit = 1000       # 成功时间限制，max: 1000, 不在环境中定义 todo 修改成功条件
-Success_FollowDistance = 1      # 成功靠近目标距离: 1。跟踪敌机的距离 胜利条件
+Success_FollowDistance = 1.0      # 成功靠近目标距离: 1。跟踪敌机的距离 胜利条件
 Success_AttackDistance = 0.13    # 成功打击距离: 0.1。打击敌机的距离 胜利条件
-Success_KeepDistance = 0.1      # 彼此不碰撞距离: 0.1。不碰撞距离 成功条件
+Success_KeepDistance = 0.08      # 彼此不碰撞距离: 0.1。不碰撞距离 成功条件
 # 胜利条件=时间限制+跟踪敌机的距离限制+打击敌机的距离限制
 # 成功条件(完美条件)=时间限制+跟踪敌机的距离限制+打击敌机的距离限制+彼此不碰撞距离条件
 

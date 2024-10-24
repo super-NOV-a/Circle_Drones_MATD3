@@ -42,9 +42,6 @@ class MATD3(object):
     def choose_action(self, obs, noise_std):
         obs = torch.unsqueeze(torch.tensor(obs, dtype=torch.float).to(self.device), 0)  # 移动到设备
         a = self.actor(obs).data.cpu().numpy().flatten()  # 返回到CPU
-        # if np.random.rand() < 0.2:# 使用epsilon-greedy策略
-        #     a = np.random.uniform(-self.max_action, self.max_action, size=a.shape)
-        # else:
         a += np.random.normal(0, noise_std, size=a.shape)
         return a.clip(-self.max_action, self.max_action)
 

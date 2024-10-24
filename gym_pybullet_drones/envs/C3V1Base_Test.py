@@ -61,7 +61,8 @@ class C3V1Base_Test(gym.Env):
                  vision_attributes=False,
                  output_folder='results',
                  need_target=False,
-                 obs_with_act=False
+                 obs_with_act=False,
+                 all_axis=2,
                  ):
         #### Constants #############################################
         self.G = 9.8
@@ -196,7 +197,7 @@ class C3V1Base_Test(gym.Env):
         self.keep_init_pos = False
         if initial_xyzs is None:
             # 0.8:9个随机cell位置，1.0: 16个，1.3: 25个，1.5: 36个,1.8: 49个,2.0: 64个
-            self.cell_pos = generate_non_overlapping_positions_numpy(2)
+            self.cell_pos = generate_non_overlapping_positions_numpy(all_axis)
             # pprint(self.cell_pos)
             # 若需要，同时给定目标位置
             self.need_target = need_target
@@ -204,7 +205,7 @@ class C3V1Base_Test(gym.Env):
             self.INIT_Target = self.TARGET_POS
         elif np.array(initial_xyzs).shape == (self.NUM_DRONES, 3):
             self.INIT_XYZS = initial_xyzs
-            self.cell_pos = generate_non_overlapping_positions_numpy(2)
+            self.cell_pos = generate_non_overlapping_positions_numpy(all_axis)
             # 若需要，同时给定目标位置
             self.need_target = need_target
             _, self.TARGET_POS, self.END_Target = self.get_init()

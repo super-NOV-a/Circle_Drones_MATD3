@@ -15,14 +15,14 @@ import plotly.graph_objects as go
 Env_name = 'c3v1A'  # c3v1 \ c3v1A (最好的为9200)\ c3v1G\c3v1A_GR (最好的为9200)
 Mark = 9200  # todo 测试时指定mark
 action = 'vel'
-Eval_plot = True                # 是否绘制轨迹图像 该选项同时保存txt和png文件,重复保存会覆盖 该选项会增加运行时间!
-Env_gui = False                 # 环境gui是否开启 建议关闭 该选项会增加时间
+Eval_plot = False                # 是否绘制轨迹图像 该选项同时保存txt和png文件,重复保存会覆盖 该选项会增加运行时间!
+Env_gui = True                 # 环境gui是否开启 建议关闭 该选项会增加时间
 Display = False                 # 开启Eval_plot后：绘制图像是否展示 建议关闭，想看去文件夹下面看去
 Need_Html = False               # 开启Eval_plot后：是否需要Html图像 建议关闭
 Success_Time_Limit = 1000       # 成功时间限制，max: 1000, 不在环境中定义 todo 修改成功条件
-Success_FollowDistance = 1.0      # 成功靠近目标距离: 1。跟踪敌机的距离 胜利条件
-Success_AttackDistance = 0.13    # 成功打击距离: 0.1。打击敌机的距离 胜利条件
-Success_KeepDistance = 0.1      # 彼此不碰撞距离: 0.1。不碰撞距离 成功条件
+Success_FollowDistance = 0.2      # 成功靠近目标距离: 1。跟踪敌机的距离 胜利条件
+Success_AttackDistance = 0.1    # 成功打击距离: 0.13。打击敌机的距离 胜利条件
+Success_KeepDistance = 0.1      # 彼此不碰撞距离: 0.08。不碰撞距离 成功条件
 # 胜利条件=时间限制+跟踪敌机的距离限制+打击敌机的距离限制
 # 成功条件(完美条件)=时间限制+跟踪敌机的距离限制+打击敌机的距离限制+彼此不碰撞距离条件
 

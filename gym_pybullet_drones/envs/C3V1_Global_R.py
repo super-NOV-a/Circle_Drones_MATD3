@@ -72,7 +72,7 @@ class C3V1_GlobalReward(C3V1RLAviary):
         rewards += 10 * np.power(20, -dis_to_target[:, -1])     # 距离目标奖励
         rewards -= 0.1 * v    # 速度惩罚
         rewards += np.sum(velocity * dis_to_target[:, :3], axis=1) / (v * dis_to_target[:, -1])     # 相似度奖励
-        rewards += 10 * np.power(20, -np.abs(dis_to_target[:, 2]))     # 高度奖励
+        rewards += 3 * np.power(20, -np.abs(dis_to_target[:, 2]))     # 高度奖励
 
         return rewards
 
